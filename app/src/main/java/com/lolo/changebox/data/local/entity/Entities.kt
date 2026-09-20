@@ -27,6 +27,11 @@ data class CurrencyEntity(
     val decimalPlaces: Int = 2,
     val isBase: Boolean = false,
     val active: Boolean = true,
+    // CASH (efectivo) | DIGITAL (sin efectivo, ej. MLC). Una moneda digital
+    // no lleva denominaciones ni admite cuentas de efectivo/caja.
+    // El defaultValue debe coincidir con el DEFAULT de MIGRATION_1_2: Room
+    // compara ambos esquemas al abrir la BD migrada.
+    @ColumnInfo(defaultValue = "CASH") val kind: String = "CASH",
 )
 
 @Entity(

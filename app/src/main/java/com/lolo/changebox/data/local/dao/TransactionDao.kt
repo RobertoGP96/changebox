@@ -158,7 +158,7 @@ interface TransactionDao {
           AND (:accountId IS NULL OR t.accountId = :accountId)
           AND (:categoryId IS NULL OR t.categoryId = :categoryId)
           AND (:kind IS NULL OR t.kind = :kind)
-        ORDER BY t.occurredAt DESC
+        ORDER BY t.occurredAt DESC, t.createdAt DESC
         LIMIT :limit
         """
     )
@@ -180,7 +180,7 @@ interface TransactionDao {
           AND (:accountId IS NULL OR t.accountId = :accountId)
           AND (:categoryId IS NULL OR t.categoryId = :categoryId)
           AND (:kind IS NULL OR t.kind = :kind)
-        ORDER BY t.occurredAt ASC
+        ORDER BY t.occurredAt ASC, t.createdAt ASC
         """
     )
     suspend fun exportRows(
@@ -196,7 +196,7 @@ interface TransactionDao {
         """
         $TX_JOIN
         WHERE t.accountId = :accountId OR t.counterAccountId = :accountId
-        ORDER BY t.occurredAt DESC
+        ORDER BY t.occurredAt DESC, t.createdAt DESC
         LIMIT :limit
         """
     )

@@ -2,6 +2,7 @@
 
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.fail
+import com.lolo.changebox.data.guarded
 import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.entity.ExchangeRateEntity
 import com.lolo.changebox.data.ok
@@ -74,23 +75,23 @@ class RateRepository(private val db: ChangeboxDatabase) {
         toCurrencyId: String,
         rate: String,
         effectiveAt: Long? = null,
-    ): ActionResult<String> {
-        if (fromCurrencyId == toCurrencyId) return fail("Elige dos monedas distintas")
+    ): ActionResult<String> = guarded("No se pudo guardar la tasa") {
+        if (fromCurrencyId == toCurrencyId) return@guarded fail("Elige dos monedas distintas")
 
         val from = catalogDao.currencyById(fromCurrencyId)
         val to = catalogDao.currencyById(toCurrencyId)
         if (from == null || !from.active || to == null || !to.active) {
-            return fail("Moneda no válida")
+            return@guarded fail("Moneda no válida")
         }
 
         // La tasa se parsea con la misma precisión con que se almacena (×10 000).
         val rateScaled = try {
             parseAmountToMinor(rate, MinorCurrencyOf(4))
         } catch (e: MoneyException) {
-            return fail(e.message ?: "Tasa inválida")
+            return@guarded fail(e.message ?: "Tasa inválida")
         }
-        if (rateScaled <= 0) return fail("La tasa debe ser mayor que cero")
-        if (rateScaled > SERVER_INT_MAX) return fail("La tasa es demasiado grande")
+        if (rateScaled <= 0) return@guarded fail("La tasa debe ser mayor que cero")
+        if (rateScaled > SERVER_INT_MAX) return@guarded fail("La tasa es demasiado grande")
 
         val entity = ExchangeRateEntity(
             fromCurrencyId = from.id,
@@ -99,7 +100,7 @@ class RateRepository(private val db: ChangeboxDatabase) {
             effectiveAt = effectiveAt ?: System.currentTimeMillis(),
         )
         rateDao.insertRate(entity)
-        return ok(entity.id)
+        return@guarded ok(entity.id)
     }
 
     companion object {

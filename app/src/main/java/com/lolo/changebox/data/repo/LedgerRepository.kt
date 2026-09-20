@@ -3,6 +3,7 @@
 import androidx.room.withTransaction
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.fail
+import com.lolo.changebox.data.guarded
 import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.dao.TxJoinRow
 import com.lolo.changebox.data.local.entity.AccountEntity
@@ -207,11 +208,11 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
         return LinesCheck.Ok(lines)
     }
 
-    suspend fun registerIncomeExpense(data: IncomeExpenseInput): ActionResult<String> {
+    suspend fun registerIncomeExpense(data: IncomeExpenseInput): ActionResult<String> = guarded("No se pudo registrar el movimiento") {
         val account = accountDao.accountById(data.accountId)
-        if (account == null || account.archived) return fail("Cuenta no válida")
+        if (account == null || account.archived) return@guarded fail("Cuenta no válida")
         val accountCurrency = catalogDao.currencyById(account.currencyId)
-            ?: return fail("Cuenta no válida")
+            ?: return@guarded fail("Cuenta no válida")
 
         // Operación multi-moneda: el movimiento se GUARDA en la moneda de la
         // cuenta (los saldos no cambian de lógica) y el monto original + la
@@ -227,19 +228,19 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
         try {
             if (crossCurrency) {
                 val opCurrency = catalogDao.currencyById(data.amountCurrencyId!!)
-                    ?: return fail("Moneda no válida")
+                    ?: return@guarded fail("Moneda no válida")
 
                 val opMinor = parseAmountToMinor(data.amount, opCurrency.toMinor())
-                if (opMinor <= 0) return fail("El monto debe ser mayor que cero")
-                if (opMinor > SERVER_INT_MAX) return fail("Monto demasiado grande")
+                if (opMinor <= 0) return@guarded fail("El monto debe ser mayor que cero")
+                if (opMinor > SERVER_INT_MAX) return@guarded fail("Monto demasiado grande")
 
                 if (data.rate.isNullOrBlank()) {
-                    return fail("Indica la tasa ${opCurrency.code}/${accountCurrency.code}")
+                    return@guarded fail("Indica la tasa ${opCurrency.code}/${accountCurrency.code}")
                 }
                 // La tasa se parsea con la misma precisión con que se almacena.
                 val enteredRateScaled = parseAmountToMinor(data.rate, MinorCurrencyOf(4))
                 if (enteredRateScaled <= 0 || enteredRateScaled > SERVER_INT_MAX) {
-                    return fail("Tasa inválida")
+                    return@guarded fail("Tasa inválida")
                 }
 
                 amountMinor = if (data.rateDirection == RateDirection.ACCOUNT_TO_AMOUNT) {
@@ -252,10 +253,10 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
                     )
                 }
                 if (amountMinor <= 0) {
-                    return fail("El monto convertido queda en cero: revisa la tasa")
+                    return@guarded fail("El monto convertido queda en cero: revisa la tasa")
                 }
                 if (amountMinor > SERVER_INT_MAX) {
-                    return fail("El monto convertido es demasiado grande")
+                    return@guarded fail("El monto convertido es demasiado grande")
                 }
 
                 counterAmountMinor = opMinor
@@ -267,16 +268,16 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
                 )
             } else {
                 amountMinor = parseAmountToMinor(data.amount, accountCurrency.toMinor())
-                if (amountMinor <= 0) return fail("El monto debe ser mayor que cero")
+                if (amountMinor <= 0) return@guarded fail("El monto debe ser mayor que cero")
             }
         } catch (e: MoneyException) {
-            return fail(e.message ?: "Monto inválido")
+            return@guarded fail(e.message ?: "Monto inválido")
         }
 
         if (data.categoryId != null) {
             val category = catalogDao.categoryById(data.categoryId)
             if (category == null || category.kind != data.kind) {
-                return fail("Categoría no válida")
+                return@guarded fail("Categoría no válida")
             }
         }
 
@@ -285,7 +286,7 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
         val linesCheck = checkDenominationLines(
             account, accountCurrency.toDisplay(), data.denominationLines, amountMinor,
         )
-        if (linesCheck is LinesCheck.Bad) return fail(linesCheck.error)
+        if (linesCheck is LinesCheck.Bad) return@guarded fail(linesCheck.error)
 
         val transaction = TransactionEntity(
             kind = data.kind,
@@ -315,23 +316,23 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
                 )
             }
         }
-        return ok(transaction.id)
+        return@guarded ok(transaction.id)
     }
 
-    suspend fun registerTransfer(data: TransferInput): ActionResult<String> {
+    suspend fun registerTransfer(data: TransferInput): ActionResult<String> = guarded("No se pudo registrar la transferencia") {
         if (data.accountId == data.counterAccountId) {
-            return fail("Elige dos cuentas distintas")
+            return@guarded fail("Elige dos cuentas distintas")
         }
 
         val from = accountDao.accountById(data.accountId)
         val to = accountDao.accountById(data.counterAccountId)
         if (from == null || from.archived || to == null || to.archived) {
-            return fail("Cuenta no válida")
+            return@guarded fail("Cuenta no válida")
         }
         val fromCurrency = catalogDao.currencyById(from.currencyId)
-            ?: return fail("Cuenta no válida")
+            ?: return@guarded fail("Cuenta no válida")
         val toCurrency = catalogDao.currencyById(to.currencyId)
-            ?: return fail("Cuenta no válida")
+            ?: return@guarded fail("Cuenta no válida")
 
         val amountMinor: Long
         var counterAmountMinor: Long
@@ -339,18 +340,18 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
 
         try {
             amountMinor = parseAmountToMinor(data.amount, fromCurrency.toMinor())
-            if (amountMinor <= 0) return fail("El monto debe ser mayor que cero")
+            if (amountMinor <= 0) return@guarded fail("El monto debe ser mayor que cero")
 
             val sameCurrency = from.currencyId == to.currencyId
             counterAmountMinor = amountMinor
 
             if (!sameCurrency) {
                 if (data.counterAmount.isNullOrBlank()) {
-                    return fail("Indica el monto recibido en ${toCurrency.code}")
+                    return@guarded fail("Indica el monto recibido en ${toCurrency.code}")
                 }
                 counterAmountMinor = parseAmountToMinor(data.counterAmount, toCurrency.toMinor())
                 if (counterAmountMinor <= 0) {
-                    return fail("El monto recibido debe ser mayor que cero")
+                    return@guarded fail("El monto recibido debe ser mayor que cero")
                 }
                 // Tasa implícita (destino por 1 origen), solo informativa.
                 rateScaled = impliedRateScaled(
@@ -358,7 +359,7 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
                 )
             }
         } catch (e: MoneyException) {
-            return fail(e.message ?: "Monto inválido")
+            return@guarded fail(e.message ?: "Monto inválido")
         }
 
         // Desglose de salida (origen) y de entrada (destino), cada uno en la
@@ -366,11 +367,11 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
         val fromLines = checkDenominationLines(
             from, fromCurrency.toDisplay(), data.denominationLines, amountMinor,
         )
-        if (fromLines is LinesCheck.Bad) return fail(fromLines.error)
+        if (fromLines is LinesCheck.Bad) return@guarded fail(fromLines.error)
         val toLines = checkDenominationLines(
             to, toCurrency.toDisplay(), data.counterDenominationLines, counterAmountMinor,
         )
-        if (toLines is LinesCheck.Bad) return fail(toLines.error)
+        if (toLines is LinesCheck.Bad) return@guarded fail(toLines.error)
 
         val transaction = TransactionEntity(
             kind = "TRANSFER",
@@ -404,7 +405,7 @@ class LedgerRepository(private val db: ChangeboxDatabase) {
                 }
             if (lines.isNotEmpty()) txDao.insertDenominationLines(lines)
         }
-        return ok(transaction.id)
+        return@guarded ok(transaction.id)
     }
 
     // ── Export CSV (port de app/api/export/route.ts) ─────────────────────────

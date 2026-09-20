@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.lolo.changebox.data.ActionError
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.fail
+import com.lolo.changebox.data.guarded
 import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.entity.ContactEntity
 import com.lolo.changebox.data.local.entity.DebtEntity
@@ -58,32 +59,32 @@ class DebtRepository(private val db: ChangeboxDatabase) {
         return debt.totalMinor - debtDao.paidSum(debtId)
     }
 
-    suspend fun createDebt(data: CreateDebtInput): ActionResult<String> {
+    suspend fun createDebt(data: CreateDebtInput): ActionResult<String> = guarded("No se pudo crear la deuda") {
         val planFields = listOf(data.frequency, data.installmentAmount, data.firstDueAt)
         val withPlan = planFields.all { it != null }
         if (!withPlan && planFields.any { it != null }) {
-            return fail("Para el plan de cuotas indica frecuencia, cuota y primera fecha")
+            return@guarded fail("Para el plan de cuotas indica frecuencia, cuota y primera fecha")
         }
 
-        if (data.description.isBlank()) return fail("Indica la descripción")
+        if (data.description.isBlank()) return@guarded fail("Indica la descripción")
 
         val currency = catalogDao.currencyById(data.currencyId)
-        if (currency == null || !currency.active) return fail("Moneda no válida")
+        if (currency == null || !currency.active) return@guarded fail("Moneda no válida")
 
         // Solo validaciones antes de escribir: el contacto nuevo se crea dentro
         // de la transacción para no dejar contactos huérfanos si algo falla.
         if (data.contactId != null) {
-            debtDao.contactById(data.contactId) ?: return fail("Contacto no válido")
+            debtDao.contactById(data.contactId) ?: return@guarded fail("Contacto no válido")
         } else if (data.contactName.isNullOrBlank()) {
-            return fail("Indica el contacto")
+            return@guarded fail("Indica el contacto")
         }
 
         var accountId: String? = null
         if (data.accountId != null) {
             val account = accountDao.accountById(data.accountId)
-            if (account == null || account.archived) return fail("Cuenta no válida")
+            if (account == null || account.archived) return@guarded fail("Cuenta no válida")
             if (account.currencyId != currency.id) {
-                return fail("La cuenta debe estar en ${currency.code} (la moneda de la deuda)")
+                return@guarded fail("La cuenta debe estar en ${currency.code} (la moneda de la deuda)")
             }
             accountId = account.id
         }
@@ -91,19 +92,19 @@ class DebtRepository(private val db: ChangeboxDatabase) {
         val totalMinor = try {
             parseAmountToMinor(data.total, currency.toMinor())
         } catch (e: MoneyException) {
-            return fail(e.message ?: "Monto inválido")
+            return@guarded fail(e.message ?: "Monto inválido")
         }
-        if (totalMinor <= 0) return fail("El total debe ser mayor que cero")
+        if (totalMinor <= 0) return@guarded fail("El total debe ser mayor que cero")
 
         var installmentMinor = 0L
         if (withPlan) {
             installmentMinor = try {
                 parseAmountToMinor(data.installmentAmount!!, currency.toMinor())
             } catch (e: MoneyException) {
-                return fail(e.message ?: "Monto inválido")
+                return@guarded fail(e.message ?: "Monto inválido")
             }
             if (installmentMinor <= 0 || installmentMinor > totalMinor) {
-                return fail("La cuota debe ser mayor que cero y no superar el total")
+                return@guarded fail("La cuota debe ser mayor que cero y no superar el total")
             }
         }
 
@@ -146,23 +147,23 @@ class DebtRepository(private val db: ChangeboxDatabase) {
             created
         }
 
-        return ok(debt.id)
+        return@guarded ok(debt.id)
     }
 
-    suspend fun setDebtAccount(debtId: String, accountId: String?): ActionResult<String> {
-        val debt = debtDao.debtById(debtId) ?: return fail("Deuda no encontrada")
-        val currency = catalogDao.currencyById(debt.currencyId) ?: return fail("Moneda no válida")
+    suspend fun setDebtAccount(debtId: String, accountId: String?): ActionResult<String> = guarded("No se pudo actualizar la cuenta") {
+        val debt = debtDao.debtById(debtId) ?: return@guarded fail("Deuda no encontrada")
+        val currency = catalogDao.currencyById(debt.currencyId) ?: return@guarded fail("Moneda no válida")
 
         if (accountId != null) {
             val account = accountDao.accountById(accountId)
-            if (account == null || account.archived) return fail("Cuenta no válida")
+            if (account == null || account.archived) return@guarded fail("Cuenta no válida")
             if (account.currencyId != debt.currencyId) {
-                return fail("La cuenta debe estar en ${currency.code} (la moneda de la deuda)")
+                return@guarded fail("La cuenta debe estar en ${currency.code} (la moneda de la deuda)")
             }
         }
 
         debtDao.setDebtAccount(debt.id, accountId)
-        return ok(debt.id)
+        return@guarded ok(debt.id)
     }
 
     data class PaymentOutcome(val id: String, val settled: Boolean)
@@ -172,25 +173,25 @@ class DebtRepository(private val db: ChangeboxDatabase) {
         accountId: String,
         amount: String,
         note: String? = null,
-    ): ActionResult<PaymentOutcome> {
+    ): ActionResult<PaymentOutcome> = guarded("No se pudo registrar el abono") {
         val debt = debtDao.debtById(debtId)
-        if (debt == null || debt.status != "OPEN") return fail("La deuda no está abierta")
-        val currency = catalogDao.currencyById(debt.currencyId) ?: return fail("Moneda no válida")
+        if (debt == null || debt.status != "OPEN") return@guarded fail("La deuda no está abierta")
+        val currency = catalogDao.currencyById(debt.currencyId) ?: return@guarded fail("Moneda no válida")
 
         val account = accountDao.accountById(accountId)
-        if (account == null || account.archived) return fail("Cuenta no válida")
+        if (account == null || account.archived) return@guarded fail("Cuenta no válida")
         if (account.currencyId != debt.currencyId) {
-            return fail("La cuenta debe estar en ${currency.code} (la moneda de la deuda)")
+            return@guarded fail("La cuenta debe estar en ${currency.code} (la moneda de la deuda)")
         }
 
         val amountMinor = try {
             parseAmountToMinor(amount, currency.toMinor())
         } catch (e: MoneyException) {
-            return fail(e.message ?: "Monto inválido")
+            return@guarded fail(e.message ?: "Monto inválido")
         }
-        if (amountMinor <= 0) return fail("El abono debe ser mayor que cero")
+        if (amountMinor <= 0) return@guarded fail("El abono debe ser mayor que cero")
 
-        return try {
+        return@guarded try {
             var settled = false
             var paymentId = ""
             db.withTransaction {
@@ -239,10 +240,10 @@ class DebtRepository(private val db: ChangeboxDatabase) {
      * cuotas (las cuotas caen por Cascade). Los movimientos de las cuentas se
      * CONSERVAN (los saldos no cambian; solo pierden el vínculo).
      */
-    suspend fun deleteDebt(debtId: String): ActionResult<Unit> {
-        debtDao.debtById(debtId) ?: return fail("Deuda no encontrada")
+    suspend fun deleteDebt(debtId: String): ActionResult<Unit> = guarded("No se pudo eliminar la deuda") {
+        debtDao.debtById(debtId) ?: return@guarded fail("Deuda no encontrada")
         debtDao.deleteDebt(debtId)
-        return ok(Unit)
+        return@guarded ok(Unit)
     }
 }
 

@@ -3,6 +3,7 @@
 import androidx.room.withTransaction
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.fail
+import com.lolo.changebox.data.guarded
 import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.entity.CashCountEntity
 import com.lolo.changebox.data.local.entity.CashCountLineEntity
@@ -37,20 +38,20 @@ class CashCountRepository(
         note: String?,
         createAdjustment: Boolean,
         lines: List<CashCountLineInput>,
-    ): ActionResult<CountOutcome> {
+    ): ActionResult<CountOutcome> = guarded("No se pudo guardar el arqueo") {
         val account = accountDao.accountById(accountId)
         val type = account?.let { runCatching { AccountType.valueOf(it.type) }.getOrNull() }
         if (account == null || account.archived || type == null || !type.isCashLike()) {
-            return fail("Solo se pueden arquear Changeboxs de efectivo")
+            return@guarded fail("Solo se pueden arquear Changeboxs de efectivo")
         }
-        if (lines.isEmpty()) return fail("Indica las cantidades del conteo")
+        if (lines.isEmpty()) return@guarded fail("Indica las cantidades del conteo")
 
         val denominations = catalogDao.activeDenominations(account.currencyId)
         val byId = denominations.associateBy { it.id }
 
         for (line in lines) {
             if (line.denominationId !in byId) {
-                return fail("Denominación no válida para esta moneda")
+                return@guarded fail("Denominación no válida para esta moneda")
             }
         }
 
@@ -98,7 +99,7 @@ class CashCountRepository(
             }
         }
 
-        return ok(CountOutcome(count.id, differenceMinor))
+        return@guarded ok(CountOutcome(count.id, differenceMinor))
     }
 }
 

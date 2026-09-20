@@ -37,10 +37,14 @@ arquitectura actual.
   Counting (sugeridor con backtracking para el billete de 3 CUP), Dates
   (recurrencia con clamp de fin de mes), MetricsCore, Domain (enums + labels
   ES). Ports 1:1 de `src/lib/*.ts` de la web, con tests en `app/src/test`.
-- **Datos** (`data/local/`): esquema Room v1 espejo del prisma/schema.prisma
-  SIN userId ni tablas de sync. Fechas en epoch millis (formularios a las
-  12:00 locales, como la web). Los borrados en cascada de la web se replican
-  con FKs: borrar CUENTA se lleva movimientos de AMBOS lados + arqueos +
+- **Datos** (`data/local/`): esquema Room v2 espejo del prisma/schema.prisma
+  SIN userId ni tablas de sync. Fechas en epoch millis. Los VENCIMIENTOS
+  (`dueAt`, `endAt`) van a las 12:00 locales (`atNoonMillis`, como la web),
+  pero el `occurredAt` de un movimiento lleva la fecha elegida + la HORA
+  ACTUAL (`atCurrentTimeMillis`): así dos movimientos del mismo día
+  conservan el orden en que se registraron, que es el que usan el historial
+  (`ORDER BY occurredAt, createdAt`) y el stock por denominación. Los
+  borrados en cascada de la web se replican con FKs: borrar CUENTA se lleva movimientos de AMBOS lados + arqueos +
   abonos (CASCADE); borrar DEUDA se lleva abonos y planes+cuotas; las cuotas
   saldadas conservan estado si cae su movimiento (SET_NULL). Denominaciones y
   categorías usadas NO se borran (RESTRICT + chequeo con mensaje amigable).
@@ -64,7 +68,7 @@ arquitectura actual.
   petróleo/esmeralda + dorado portada de globals.css, SIN dynamic color;
   fuente Outfit variable local). Navegación con bottom bar (Inicio, Cuentas,
   [+] central, Deudas, Más) espejo del bottom-nav web. Componentes
-  compartidos en `ui/common` (ScreenHeader con gradiente, CajaCard, badges,
+  compartidos en `ui/common` (ScreenHeader con gradiente, ChangeboxCard, badges,
   DenominationCounter, gráficos Canvas sin librerías). DI manual:
   `di/AppContainer` + `appViewModel {}`.
 - **Export CSV**: `LedgerRepository.exportCsv` (mismas columnas y BOM que
@@ -75,9 +79,18 @@ arquitectura actual.
 
 ## Gotchas
 
-- Cambiar el esquema Room exige subir `version` en ChangeboxDatabase; hay
-  `fallbackToDestructiveMigration(dropAllTables = true)` a propósito (el
-  remake descarta la BD del prototipo con sync).
+- Cambiar el esquema Room exige subir `version` en ChangeboxDatabase **y
+  escribir la `Migration`** (v1→v2 ya existe: `Currency.kind`). El
+  `fallbackToDestructiveMigration(dropAllTables = true)` sigue puesto como
+  red de seguridad para saltos sin migración, no como sustituto: si lo dejas
+  actuar, el usuario pierde sus datos.
+- Toda operación de escritura de un repo va envuelta en
+  `guarded("No se pudo …") { … }` (`data/Results.kt`), con el MISMO texto
+  genérico que el `catch` de la server action equivalente: un fallo
+  inesperado se convierte en `Failure` en vez de tumbar la app. Dentro de esa
+  lambda los `return` son `return@guarded`.
+- `Currency.kind` = CASH | DIGITAL: una moneda digital (MLC) no lleva
+  denominaciones ni admite cuentas CASH/CASH_BOX.
 - Los `@Query` con filtros opcionales usan el patrón
   `(:param IS NULL OR col = :param)` — mantenerlo al añadir filtros.
 - VENCIDA es estado DERIVADO (cuota PENDING con dueAt pasado): no hay

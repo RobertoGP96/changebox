@@ -166,7 +166,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                         fontSize = 12.5.sp,
                         modifier = Modifier.weight(1f),
                     )
-                    ChangeboxBadge(if (plan.active) "Activo" else "Inactivo", BadgeVariant.NEUTRAL)
+                    ChangeboxBadge(if (plan.active) "Activa" else "Finalizada", BadgeVariant.NEUTRAL)
                 }
             }
         }
@@ -304,7 +304,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                 }
             }
 
-            // Desactivar + eliminar
+            // Finalizar + eliminar
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
@@ -314,7 +314,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                     DeactivatePlanButton(onDeactivate = {
                         vm.deactivate { result ->
                             when (result) {
-                                is ActionResult.Success -> toast("Plan desactivado")
+                                is ActionResult.Success -> toast("Mensualidad finalizada")
                                 is ActionResult.Failure -> toast(result.error)
                             }
                         }
@@ -361,7 +361,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 when (inst.status) {
-                                    "PAID" -> ChangeboxBadge("Pagada", BadgeVariant.OK)
+                                    "PAID" -> ChangeboxBadge("Saldada", BadgeVariant.OK)
                                     "SKIPPED" -> ChangeboxBadge("Omitida", BadgeVariant.NEUTRAL)
                                     else -> ChangeboxBadge(
                                         dueLabel(inst.dueAt.toLocalDate()),
@@ -384,11 +384,11 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
 private fun DeactivatePlanButton(onDeactivate: () -> Unit) {
     var confirming by remember { mutableStateOf(false) }
     if (!confirming) {
-        GhostButton("Desactivar plan", onClick = { confirming = true })
+        GhostButton("Finalizar mensualidad", onClick = { confirming = true })
     } else {
         InlineConfirm(
-            text = "¿Desactivar?",
-            confirmLabel = "Sí, desactivar",
+            text = "¿Finalizar? Las cuotas pendientes se omiten.",
+            confirmLabel = "Sí, finalizar",
             onConfirm = {
                 confirming = false
                 onDeactivate()

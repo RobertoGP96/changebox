@@ -38,7 +38,7 @@ import androidx.navigation.NavHostController
 import com.composables.icons.lucide.ArrowRightLeft
 import com.composables.icons.lucide.Lucide
 import com.lolo.changebox.data.ActionResult
-import com.lolo.changebox.data.atNoonMillis
+import com.lolo.changebox.data.atCurrentTimeMillis
 import com.lolo.changebox.data.local.entity.CategoryEntity
 import com.lolo.changebox.data.local.entity.CurrencyEntity
 import com.lolo.changebox.data.repo.DenomLineInput
@@ -363,7 +363,9 @@ fun RegisterScreen(
     fun submit() {
         saving = true
         error = null
-        val occurredAt = date.atNoonMillis()
+        // Fecha elegida + hora actual: así los movimientos del mismo día
+        // conservan el orden en que se registraron (igual que la web).
+        val occurredAt = date.atCurrentTimeMillis()
         val onResult: (ActionResult<String>) -> Unit = { result ->
             saving = false
             when (result) {

@@ -12,7 +12,7 @@ Estado por fases:
 | Fase | Estado |
 |---|---|
 | 0 — Sanear el repo | **Hecha** |
-| 1 — Paridad de esquema y dominio | Pendiente |
+| 1 — Paridad de esquema y dominio | **Hecha** |
 | 2 — Paridad funcional | Pendiente |
 | 3 — Servidor: servicios + API móvil | Pendiente |
 | 4 — Cliente: red y sincronización | Pendiente |
@@ -168,12 +168,10 @@ Cada fase deja la app usable y se puede commitear y repartir por separado.
 5. Reescribir `README.md` y `CLAUDE.md` con el estado real (offline hoy,
    ruta `D:\` de la web) y mover `docs/neon-*.md` a un apartado "histórico".
 
-### Fase 1 — Paridad de esquema y dominio (~2-3 días)
+### Fase 1 — Paridad de esquema y dominio — HECHA
 
-Room v2 (`fallbackToDestructiveMigration` sigue vigente, así que no hace
-falta migración manual todavía, pero desde que haya usuarios con datos
-locales sí: dejar de usar el fallback a partir de aquí y escribir
-migraciones reales).
+Room va por v2 con **migración real** (`MIGRATION_1_2`), no por borrado
+destructivo: el fallback queda solo como red de seguridad. Lo aplicado:
 
 - `CurrencyEntity.kind` (CASH/DIGITAL) + `CurrencyKind` en `Domain.kt`;
   `Seed.kt`: MLC digital sin denominaciones; `createCurrency` recibe `kind`
