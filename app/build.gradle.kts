@@ -4,18 +4,21 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
 }
 
 android {
-    namespace = "com.lolo.nativemessenger"
+    namespace = "com.lolo.changebox"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.lolo.nativemessenger"
+        applicationId = "com.lolo.changebox"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -38,6 +41,15 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        // Los tests de DAO corren con Robolectric en la JVM (sin dispositivo).
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 kotlin {
@@ -61,6 +73,18 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.navigation.compose)
 
+    // App 100% offline: Room es la única fuente de verdad
+    implementation(libs.room.runtime)
+    ksp(libs.room.compiler)
+    implementation(libs.datastore.preferences)
+    implementation(libs.kotlinx.serialization.json)
+
+    // Iconos lucide (mismo set curado que la web en Account.icon)
+    implementation(libs.lucide.icons)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.room.testing)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }
