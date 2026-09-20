@@ -1,15 +1,27 @@
 ﻿# Plan: paridad con la web y soporte de la base de datos
 
-Fecha: 2026-09-20. Estado: **propuesta** (nada de esto está implementado).
+Fecha: 2026-09-20. Última revisión: 2026-09-20 (Fase 0 completada).
 
-Objetivo: que la APK (`native-messenger`, paquete `com.lolo.changebox`) haga
+Objetivo: que la APK (repo `changebox`, paquete `com.lolo.changebox`) haga
 todo lo que hace la web (`D:\Projects\fantastic-eureka`, Next.js 15 + Prisma
 sobre Neon) y que un usuario que ya usa la web pueda entrar en la APK, ver
 sus datos y trabajar offline con sincronización bidireccional.
 
+Estado por fases:
+
+| Fase | Estado |
+|---|---|
+| 0 — Sanear el repo | **Hecha** |
+| 1 — Paridad de esquema y dominio | Pendiente |
+| 2 — Paridad funcional | Pendiente |
+| 3 — Servidor: servicios + API móvil | Pendiente |
+| 4 — Cliente: red y sincronización | Pendiente |
+| 5 — Funciones que necesitan red | Pendiente |
+| 6 — QA y release | Pendiente |
+
 > Nota: la web NO está en `F:\Projects\fantastic-eureka` (esa unidad no
 > existe en esta máquina). La copia viva es `D:\Projects\fantastic-eureka`
-> (= `origin/main` de GitHub). Hay que corregir CLAUDE.md y README.
+> (= `origin/main` de GitHub).
 
 ---
 
@@ -17,22 +29,11 @@ sus datos y trabajar offline con sincronización bidireccional.
 
 ### 0.1 APK
 
-- **No compila tal cual (muy probable)**: el árbol está a medio renombrar de
-  `com.lolo.changebox` a `com.lolo.changebox`. Quedan 11 referencias con nombre
-  completo al paquete viejo (`CajaApp.kt:257`, `AccountsScreen.kt:195-202`,
-  `AccountDetailScreen.kt:546`, `CategoriesScreen.kt:260`,
-  `CatalogRepository.kt:250-252`, `LedgerRepository.kt:437`,
-  `PlanRepository.kt:230`, `HomeScreen.kt:164`) y `MainActivity.kt:15` hace
-  cast a `CajaApplication` cuando la clase se llama `ChangeboxApplication`.
-  Las últimas clases compiladas (`app/build/tmp/kotlin-classes`) y los dos
-  APK de la raíz (17-jul) son del paquete `com.lolo.changebox`.
-- **Nada está commiteado**: `HEAD` es el scaffold del chat viejo
-  (`com.lolo.nativemessenger`, que sigue en el árbol como código muerto).
-  Toda la app Caja aparece como *untracked*.
-- **Docs desfasadas**: `README.md` describe un prototipo con `SyncEngine`,
-  outbox, `ApiSyncSource`, `NeonSyncSource` y Neon Auth que **no existe** en
-  el código actual; `docs/neon-*.md` describen fases "hechas" que tampoco
-  están. `CLAUDE.md` dice paquete `com.lolo.changebox`.
+- **Renombrado y commit: resueltos en la Fase 0.** El diagnóstico original
+  era que el árbol estaba a medio renombrar de `com.lolo.caja` a
+  `com.lolo.changebox` (11 referencias al paquete viejo y un cast a
+  `CajaApplication`), que nada estaba commiteado y que las docs describían
+  un prototipo inexistente. Ver el detalle de lo aplicado en la Fase 0.
 - **Sin red por diseño**: sin permiso INTERNET, sin auth, sin `userId` en
   Room, sin metadatos de sincronización. Room v1 espejo del Prisma menos
   `Currency.kind`, `User`, `Session`, `AccountShare`.

@@ -1,7 +1,7 @@
 ﻿# Changebox — réplica offline de fantastic-eureka
 
 App Android nativa (Kotlin + Jetpack Compose, paquete `com.lolo.changebox`) que
-replica COMPLETA la web de Changebox (`F:\Projects\fantastic-eureka`, Next.js) en
+replica la web de Changebox (`D:\Projects\fantastic-eureka`, Next.js) en
 modo **100% offline**: sin inicio de sesión, sin sincronización, sin permiso
 de INTERNET. Room es la única fuente de verdad. El repo y la carpeta son
 `changebox` (antes `native-messenger`, herencia histórica ya corregida).
@@ -9,6 +9,13 @@ de INTERNET. Room es la única fuente de verdad. El repo y la carpeta son
 La web es la REFERENCIA FUNCIONAL: cualquier feature nueva se porta desde
 allí (mismos textos en español, mismas reglas de negocio, mismos mensajes de
 error). UI/comentarios en español.
+
+La paridad NO está completa y la app aún no habla con la base de datos de la
+web. El inventario de brechas y el plan por fases están en
+`docs/plan-paridad-y-sincronizacion.md` — consúltalo antes de planificar
+trabajo nuevo. Los `docs/neon-*.md` describen un prototipo con
+sincronización que NO existe en este código: son histórico, no la
+arquitectura actual.
 
 ## Comandos
 

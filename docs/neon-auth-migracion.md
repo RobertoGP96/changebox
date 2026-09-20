@@ -1,5 +1,11 @@
 # Plan: migrar Caja a Neon Auth (nativo)
 
+> **HISTÓRICO — no describe este código.** Documenta un prototipo con
+> sincronización (outbox, SyncEngine, Neon directo, Neon Auth) que NO existe
+> en este repo: la app es 100 % offline. Se conserva como material de
+> referencia para las fases 3 y siguientes de
+> [plan-paridad-y-sincronizacion.md](plan-paridad-y-sincronizacion.md).
+
 Estado: **en ejecución**. Cubre los dos repositorios: la web
 (`F:\Projects\fantastic-eureka`) y esta app Android.
 
