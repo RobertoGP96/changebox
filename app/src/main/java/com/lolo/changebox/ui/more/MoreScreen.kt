@@ -68,7 +68,7 @@ private data class MenuItem(
 private val ITEMS = listOf(
     MenuItem(
         Routes.COUNTING, Lucide.Banknote,
-        "Conteo de efectivo", "Arqueo de Changeboxs con denominaciones",
+        "Conteo de efectivo", "Arqueo de cajas con denominaciones",
     ),
     MenuItem(
         Routes.CALCULATOR, Lucide.Calculator,

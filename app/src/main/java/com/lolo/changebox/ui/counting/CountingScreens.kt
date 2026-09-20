@@ -1,5 +1,6 @@
 ﻿package com.lolo.changebox.ui.counting
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,6 +48,7 @@ import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Coins
 import com.composables.icons.lucide.Eraser
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Share2
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.local.dao.CashCountWithAccount
 import com.lolo.changebox.data.local.entity.AccountEntity
@@ -58,6 +62,8 @@ import com.lolo.changebox.di.appViewModel
 import com.lolo.changebox.domain.AccountType
 import com.lolo.changebox.domain.CountableDenomination
 import com.lolo.changebox.domain.DisplayCurrencyOf
+import com.lolo.changebox.domain.ShareableDenomination
+import com.lolo.changebox.domain.buildCountShareText
 import com.lolo.changebox.domain.countedPieces
 import com.lolo.changebox.domain.countedTotalMinor
 import com.lolo.changebox.domain.fmtMinor
@@ -89,7 +95,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// Conteo de efectivo (listado de Changeboxs + arqueos recientes), arqueo de una
+// Conteo de efectivo (listado de cajas + arqueos recientes), arqueo de una
 // caja y calculadora libre — ports de conteo/page, conteo/[id] y calculadora.
 
 // ── Listado /conteo ─────────────────────────────────────────────────────────
@@ -166,7 +172,7 @@ fun CountingScreen(navController: NavHostController) {
             if (state.loaded && state.cashAccounts.isEmpty()) {
                 EmptyState(
                     icon = Lucide.Banknote,
-                    title = "Sin Changeboxs de efectivo",
+                    title = "Sin cajas de efectivo",
                     description = "Crea una cuenta de tipo Efectivo o Caja (denominaciones) para poder hacer arqueos.",
                     ctaLabel = "Crear cuenta",
                     onCta = { navController.navigate(Routes.NEW_ACCOUNT) },
@@ -476,7 +482,12 @@ fun CashCountScreen(navController: NavHostController, accountId: String) {
                         when (result) {
                             is ActionResult.Success -> {
                                 toast("Arqueo guardado")
-                                navController.popBackStack()
+                                // Como la web: tras guardar se va al detalle de
+                                // la cuenta arqueada. El formulario sale de la
+                                // pila para no reaparecer al volver atrás.
+                                navController.navigate(Routes.accountDetail(accountId)) {
+                                    popUpTo(Routes.CASH_COUNT) { inclusive = true }
+                                }
                             }
                             is ActionResult.Failure -> error = result.error
                         }
@@ -532,6 +543,7 @@ class CalculatorViewModel(container: AppContainer) : ViewModel() {
 fun CalculatorScreen(navController: NavHostController) {
     val vm = appViewModel { CalculatorViewModel(it) }
     val currencies by vm.currencies.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     var currencyId by remember { mutableStateOf<String?>(null) }
     // Las cantidades se guardan POR MONEDA: cambiar de divisa no borra el
@@ -648,36 +660,38 @@ fun CalculatorScreen(navController: NavHostController) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant,
-                                    RoundedCornerShape(12.dp),
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Comparte el conteo con las denominaciones
+                            // contadas por la hoja de compartir del sistema.
+                            CountActionChip(
+                                icon = Lucide.Share2,
+                                label = "Compartir",
+                                enabled = pieces > 0,
+                            ) {
+                                val text = buildCountShareText(
+                                    currency.denominations.map {
+                                        ShareableDenomination(it.id, it.valueMinor, it.kind)
+                                    },
+                                    quantities,
+                                    display,
                                 )
-                                .clickable(enabled = pieces > 0) {
-                                    quantitiesByCurrency =
-                                        quantitiesByCurrency + (currency.id to emptyMap())
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, "Conteo de efectivo")
+                                    putExtra(Intent.EXTRA_TEXT, text)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Lucide.Eraser,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    .copy(alpha = if (pieces > 0) 1f else 0.4f),
-                                modifier = Modifier.size(15.dp),
-                            )
-                            Text(
-                                "Limpiar",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    .copy(alpha = if (pieces > 0) 1f else 0.4f),
-                            )
+                                context.startActivity(
+                                    Intent.createChooser(intent, "Conteo de efectivo")
+                                )
+                            }
+                            CountActionChip(
+                                icon = Lucide.Eraser,
+                                label = "Limpiar",
+                                enabled = pieces > 0,
+                            ) {
+                                quantitiesByCurrency =
+                                    quantitiesByCurrency + (currency.id to emptyMap())
+                            }
                         }
                     }
                 }
@@ -697,6 +711,31 @@ fun CalculatorScreen(navController: NavHostController) {
 
             Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+// Botón compacto de la cabecera de la calculadora (Compartir / Limpiar):
+// atenuado y sin pulsación cuando no hay nada contado.
+@Composable
+private fun CountActionChip(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+        .copy(alpha = if (enabled) 1f else 0.4f)
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
     }
 }
 

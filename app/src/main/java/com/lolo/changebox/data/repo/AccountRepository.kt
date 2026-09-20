@@ -8,10 +8,13 @@ import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.entity.AccountEntity
 import com.lolo.changebox.data.local.entity.TransactionEntity
 import com.lolo.changebox.data.ok
+import com.lolo.changebox.domain.AccountType
 import com.lolo.changebox.domain.IncomingTransferGroup
 import com.lolo.changebox.domain.MoneyException
 import com.lolo.changebox.domain.OwnKindGroup
 import com.lolo.changebox.domain.balancesFromGroups
+import com.lolo.changebox.domain.isCashLike
+import com.lolo.changebox.domain.isDigitalCurrencyKind
 import com.lolo.changebox.domain.movementLineSign
 import com.lolo.changebox.domain.parseAmountToMinor
 import com.lolo.changebox.ui.theme.ACCOUNT_ICON_NAMES
@@ -202,6 +205,11 @@ class AccountRepository(private val db: ChangeboxDatabase) {
         if (name.isBlank()) return@guarded fail("El nombre es obligatorio")
         val currency = catalogDao.currencyById(currencyId)
         if (currency == null || !currency.active) return@guarded fail("Moneda no válida")
+        // Una moneda digital no existe en efectivo: sin cuentas de caja/efectivo.
+        val cashLike = AccountType.entries.firstOrNull { it.name == type }?.isCashLike() == true
+        if (cashLike && isDigitalCurrencyKind(currency.kind)) {
+            return@guarded fail("${currency.code} es digital: usa una cuenta de tipo Banco o Digital")
+        }
 
         if (groupId != null && catalogDao.groupById(groupId) == null) {
             return@guarded fail("Grupo no válido")

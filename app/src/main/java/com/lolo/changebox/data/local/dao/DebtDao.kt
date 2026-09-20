@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import com.lolo.changebox.data.local.entity.ContactEntity
 import com.lolo.changebox.data.local.entity.DebtEntity
 import com.lolo.changebox.data.local.entity.DebtPaymentEntity
@@ -130,5 +131,16 @@ interface DebtDao {
 
     @Insert
     suspend fun insertPayment(payment: DebtPaymentEntity)
+
+    @Query("SELECT * FROM debt_payments WHERE transactionId = :txId")
+    suspend fun paymentByTransaction(txId: String): DebtPaymentEntity?
+
+    @Update
+    suspend fun updatePayment(payment: DebtPaymentEntity)
+
+    // Al borrar el abono el pendiente reaparece: una deuda saldada vuelve a
+    // estar abierta. Nunca toca una CANCELLED.
+    @Query("UPDATE debts SET status = 'OPEN' WHERE id = :debtId AND status = 'PAID'")
+    suspend fun reopenDebtIfPaid(debtId: String)
 }
 

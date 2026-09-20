@@ -202,7 +202,9 @@ fun MovementsScreen(navController: NavHostController) {
     val topCategories = byCategory.entries.sortedByDescending { it.value }.take(8)
     val maxCategory = topCategories.firstOrNull()?.value ?: 0L
 
-    val rows = state.rows.map { toTxRow(it) }
+    // Orden cronológico ascendente (el más reciente al final): el DAO consulta
+    // en DESC y la lista se pinta invertida, igual que la web.
+    val rows = state.rows.map { toTxRow(it) }.reversed()
 
     Column(
         Modifier

@@ -1,6 +1,7 @@
 ﻿package com.lolo.changebox.ui.catalog
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,8 @@ import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.local.dao.CurrencyWithCounts
 import com.lolo.changebox.di.AppContainer
 import com.lolo.changebox.di.appViewModel
+import com.lolo.changebox.domain.CurrencyKind
+import com.lolo.changebox.domain.isDigitalCurrencyKind
 import com.lolo.changebox.ui.Routes
 import com.lolo.changebox.ui.common.BadgeVariant
 import com.lolo.changebox.ui.common.ChangeboxBadge
@@ -74,10 +77,11 @@ class CurrenciesViewModel(private val container: AppContainer) : ViewModel() {
         name: String,
         symbol: String,
         decimals: Int,
+        kind: CurrencyKind,
         onResult: (ActionResult<String>) -> Unit,
     ) {
         viewModelScope.launch {
-            onResult(container.catalog.createCurrency(code, name, symbol, decimals))
+            onResult(container.catalog.createCurrency(code, name, symbol, decimals, kind))
         }
     }
 
@@ -100,6 +104,7 @@ fun CurrenciesScreen(navController: NavHostController) {
     var name by remember { mutableStateOf("") }
     var symbol by remember { mutableStateOf("$") }
     var decimals by remember { mutableStateOf(2) }
+    var kind by remember { mutableStateOf(CurrencyKind.CASH) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var confirmBaseId by remember { mutableStateOf<String?>(null) }
@@ -153,6 +158,7 @@ fun CurrenciesScreen(navController: NavHostController) {
                             )
                         }
                     }
+                    CurrencyKindOptions(selected = kind, onSelect = { kind = it })
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -173,7 +179,7 @@ fun CurrenciesScreen(navController: NavHostController) {
                             onClick = {
                                 saving = true
                                 error = null
-                                vm.create(code, name, symbol, decimals) { result ->
+                                vm.create(code, name, symbol, decimals, kind) { result ->
                                     saving = false
                                     when (result) {
                                         is ActionResult.Success -> {
@@ -182,6 +188,7 @@ fun CurrenciesScreen(navController: NavHostController) {
                                             name = ""
                                             symbol = "$"
                                             decimals = 2
+                                            kind = CurrencyKind.CASH
                                         }
                                         is ActionResult.Failure -> error = result.error
                                     }
@@ -196,6 +203,7 @@ fun CurrenciesScreen(navController: NavHostController) {
             currencies.forEach { item ->
                 val currency = item.currency
                 val alpha = if (currency.active) 1f else 0.55f
+                val isDigital = isDigitalCurrencyKind(currency.kind)
                 ChangeboxCard {
                     Column(Modifier.padding(16.dp)) {
                         Row(
@@ -231,12 +239,16 @@ fun CurrenciesScreen(navController: NavHostController) {
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
                                     )
                                     if (currency.isBase) ChangeboxBadge("Base", BadgeVariant.FEATURED)
+                                    if (isDigital) ChangeboxBadge("Digital", BadgeVariant.NEUTRAL)
                                     if (!currency.active) ChangeboxBadge("Oculta", BadgeVariant.NEUTRAL)
                                 }
                                 Text(
                                     buildString {
                                         append("${currency.name} · ${currency.decimalPlaces} dec · ")
-                                        append("${item.denominationCount} denominaciones")
+                                        // Una moneda digital no lleva billetes:
+                                        // no tiene sentido contar denominaciones.
+                                        if (isDigital) append("sin efectivo")
+                                        else append("${item.denominationCount} denominaciones")
                                         if (item.accountCount > 0) {
                                             append(" · ${item.accountCount} cuentas")
                                         }
@@ -317,6 +329,57 @@ fun CurrenciesScreen(navController: NavHostController) {
             )
 
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * Selector Efectivo / Digital del alta de moneda: dos tarjetas con etiqueta y
+ * pista, iguales a las de currency-manager.tsx.
+ */
+@Composable
+private fun CurrencyKindOptions(selected: CurrencyKind, onSelect: (CurrencyKind) -> Unit) {
+    val options = listOf(
+        Triple(CurrencyKind.CASH, "Efectivo", "con billetes y monedas"),
+        Triple(CurrencyKind.DIGITAL, "Digital", "solo saldo, sin denominaciones"),
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (key, label, hint) ->
+            val active = key == selected
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(
+                        if (active) ChangeboxColors.extended.chip
+                        else MaterialTheme.colorScheme.surface
+                    )
+                    .border(
+                        1.dp,
+                        if (active) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(13.dp),
+                    )
+                    .clickable { onSelect(key) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    label,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (active) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    hint,
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

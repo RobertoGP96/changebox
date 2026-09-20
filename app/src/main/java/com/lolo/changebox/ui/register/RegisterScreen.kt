@@ -61,6 +61,7 @@ import com.lolo.changebox.domain.invertRateScaled
 import com.lolo.changebox.domain.minorToAmountInput
 import com.lolo.changebox.domain.parseAmountToMinor
 import com.lolo.changebox.domain.resolveRateScaled
+import com.lolo.changebox.ui.Routes
 import com.lolo.changebox.ui.common.ChangeboxSelect
 import com.lolo.changebox.ui.common.ChangeboxTextField
 import com.lolo.changebox.ui.common.CounterDenomination
@@ -331,6 +332,47 @@ fun RegisterScreen(
             destBoxDenoms.map { CountableDenomination(it.id, it.valueMinor) }, destLines,
         ) == destTarget)
 
+    // Contar primero: el total del desglose se copia al campo de monto del
+    // lado correspondiente, así se ve el saldo que se va formando. El camino
+    // inverso (escribir el monto y «Sugerir distribución») sigue disponible.
+    // En operaciones multi-moneda el monto se escribe en OTRA divisa, por lo
+    // que el desglose de origen no lo rellena (debe cuadrar con el convertido).
+    val originDrivesAmount = mode == "transferencia" || !crossCurrencyOp
+
+    fun totalInput(
+        denoms: List<CounterDenomination>,
+        lines: Map<String, Int>,
+        currency: CurrencyEntity,
+    ): String {
+        val total = countedTotalMinor(
+            denoms.map { CountableDenomination(it.id, it.valueMinor) },
+            lines,
+        )
+        return if (total > 0) {
+            minorToAmountInput(total, MinorCurrencyOf(currency.decimalPlaces))
+        } else {
+            ""
+        }
+    }
+
+    fun changeOriginLines(next: Map<String, Int>) {
+        originLines = next
+        val denoms = originBoxDenoms
+        val account = from
+        if (originDrivesAmount && denoms != null && denoms.isNotEmpty() && account != null) {
+            amount = totalInput(denoms, next, account.currency)
+        }
+    }
+
+    fun changeDestLines(next: Map<String, Int>) {
+        destLines = next
+        val denoms = destBoxDenoms
+        val account = to
+        if (denoms == null || denoms.isEmpty() || account == null) return
+        val text = totalInput(denoms, next, account.currency)
+        if (crossCurrency) counterAmount = text else amount = text
+    }
+
     fun linesPayload(lines: Map<String, Int>): List<DenomLineInput>? {
         val entries = lines.filter { it.value > 0 }
             .map { DenomLineInput(it.key, it.value) }
@@ -352,11 +394,12 @@ fun RegisterScreen(
         }
     }
 
+    // Cambiar de tipo conserva el desglose ya contado (y el monto): la cuenta
+    // de origen no cambia, así que lo contado sigue valiendo. La categoría sí
+    // se limpia porque depende del tipo.
     fun switchMode(next: String) {
         mode = next
         categoryId = ""
-        originLines = emptyMap()
-        destLines = emptyMap()
         error = null
     }
 
@@ -377,7 +420,13 @@ fun RegisterScreen(
                             else -> "Transferencia registrada"
                         }
                     )
-                    navController.popBackStack(Routes_HOME, inclusive = false)
+                    // Tras guardar se va al detalle de la cuenta afectada (en
+                    // transferencias, la de origen), no al Inicio. El
+                    // formulario ya enviado sale de la pila para no reaparecer
+                    // al volver atrás desde el detalle.
+                    navController.navigate(Routes.accountDetail(accountId)) {
+                        popUpTo(Routes.REGISTER) { inclusive = true }
+                    }
                 }
                 is ActionResult.Failure -> error = result.error
             }
@@ -414,6 +463,46 @@ fun RegisterScreen(
             )
         }
     }
+
+    // Los desgloses van ANTES del monto que rellenan; en multi-moneda el de
+    // origen baja tras la tasa porque cuadra con el monto ya convertido.
+    val originDenoms = originBoxDenoms?.takeIf { it.isNotEmpty() }
+    val destDenoms = destBoxDenoms?.takeIf { it.isNotEmpty() }
+    val originBreakdown: (@Composable () -> Unit)? =
+        if (originDenoms != null && from != null) {
+            {
+                DenominationBreakdownField(
+                    title = if (originOutflow) "Sale de «${from.name}» (denominaciones)"
+                    else "Entra en «${from.name}» (denominaciones)",
+                    denominations = originDenoms,
+                    currency = DisplayCurrencyOf(from.currency.code, from.currency.decimalPlaces),
+                    targetMinor = originTarget,
+                    quantities = originLines,
+                    onQtyChange = { changeOriginLines(it) },
+                    outflow = originOutflow,
+                    drivesAmount = originDrivesAmount,
+                )
+            }
+        } else {
+            null
+        }
+    val destBreakdown: (@Composable () -> Unit)? =
+        if (destDenoms != null && to != null) {
+            {
+                DenominationBreakdownField(
+                    title = "Entra en «${to.name}» (denominaciones)",
+                    denominations = destDenoms,
+                    currency = DisplayCurrencyOf(to.currency.code, to.currency.decimalPlaces),
+                    targetMinor = destTarget,
+                    quantities = destLines,
+                    onQtyChange = { changeDestLines(it) },
+                    outflow = false,
+                    drivesAmount = true,
+                )
+            }
+        } else {
+            null
+        }
 
     Column(
         Modifier
@@ -479,6 +568,9 @@ fun RegisterScreen(
                     )
                 }
             }
+
+            if (originDrivesAmount) originBreakdown?.invoke()
+            if (!crossCurrency) destBreakdown?.invoke()
 
             LabeledField(
                 buildString {
@@ -546,38 +638,16 @@ fun RegisterScreen(
                 }
             }
 
-            if (!originBoxDenoms.isNullOrEmpty() && from != null) {
-                DenominationBreakdownField(
-                    title = if (originOutflow) "Sale de «${from.name}» (denominaciones)"
-                    else "Entra en «${from.name}» (denominaciones)",
-                    denominations = originBoxDenoms,
-                    currency = DisplayCurrencyOf(from.currency.code, from.currency.decimalPlaces),
-                    targetMinor = originTarget,
-                    quantities = originLines,
-                    onQtyChange = { originLines = it },
-                    outflow = originOutflow,
-                )
-            }
+            if (!originDrivesAmount) originBreakdown?.invoke()
 
             if (crossCurrency) {
+                destBreakdown?.invoke()
                 LabeledField(
                     "Monto recibido (${to?.currency?.code})",
                     hint = "Las cuentas usan monedas distintas: indica cuánto entra en destino.",
                 ) {
                     ChangeboxTextField(counterAmount, { counterAmount = it }, placeholder = "0", decimal = true)
                 }
-            }
-
-            if (!destBoxDenoms.isNullOrEmpty() && to != null) {
-                DenominationBreakdownField(
-                    title = "Entra en «${to.name}» (denominaciones)",
-                    denominations = destBoxDenoms,
-                    currency = DisplayCurrencyOf(to.currency.code, to.currency.decimalPlaces),
-                    targetMinor = destTarget,
-                    quantities = destLines,
-                    onQtyChange = { destLines = it },
-                    outflow = false,
-                )
             }
 
             if (mode != "transferencia") {
@@ -619,6 +689,4 @@ fun RegisterScreen(
         }
     }
 }
-
-private const val Routes_HOME = "inicio"
 

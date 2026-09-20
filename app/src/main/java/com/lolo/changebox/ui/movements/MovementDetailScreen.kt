@@ -16,6 +16,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +38,7 @@ import com.lolo.changebox.data.local.dao.TxDenomLineRow
 import com.lolo.changebox.data.local.dao.TxDetailRow
 import com.lolo.changebox.di.AppContainer
 import com.lolo.changebox.di.appViewModel
+import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.domain.DisplayCurrencyOf
 import com.lolo.changebox.domain.TransactionKind
 import com.lolo.changebox.domain.fmtMinor
@@ -45,14 +49,20 @@ import com.lolo.changebox.ui.common.BadgeVariant
 import com.lolo.changebox.ui.common.ChangeboxBadge
 import com.lolo.changebox.ui.common.ChangeboxCard
 import com.lolo.changebox.ui.common.DetailRow
+import com.lolo.changebox.ui.common.ErrorBox
+import com.lolo.changebox.ui.common.GhostButton
+import com.lolo.changebox.ui.common.InlineConfirm
 import com.lolo.changebox.ui.common.IconChip
 import com.lolo.changebox.ui.common.ScreenHeader
+import com.lolo.changebox.ui.common.OutlineButton
 import com.lolo.changebox.ui.common.SectionTitle
 import com.lolo.changebox.ui.common.fmtDateTime
 import com.lolo.changebox.ui.common.contentWidth
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import com.lolo.changebox.ui.common.LocalToast
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 // Detalle de movimiento: cuentas origen/destino, monto original multi-moneda,
 // tasa, categoría, nota, fechas, desglose por lado y el vínculo a deuda/plan
@@ -66,7 +76,10 @@ data class MovementDetailState(
     val planLink: PlanLinkRow? = null,
 )
 
-class MovementDetailViewModel(container: AppContainer, txId: String) : ViewModel() {
+class MovementDetailViewModel(
+    private val container: AppContainer,
+    txId: String,
+) : ViewModel() {
     val state = combine(
         container.ledger.txDetailFlow(txId),
         container.ledger.txDenominationLinesFlow(txId),
@@ -75,6 +88,10 @@ class MovementDetailViewModel(container: AppContainer, txId: String) : ViewModel
     ) { tx, lines, debtLink, planLink ->
         MovementDetailState(true, tx, lines, debtLink, planLink)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MovementDetailState())
+
+    fun delete(txId: String, onResult: (ActionResult<Unit>) -> Unit) {
+        viewModelScope.launch { onResult(container.ledger.deleteTransaction(txId)) }
+    }
 }
 
 @Composable
@@ -82,6 +99,10 @@ fun MovementDetailScreen(navController: NavHostController, txId: String) {
     val vm = appViewModel(key = "movimiento-$txId") { MovementDetailViewModel(it, txId) }
     val state by vm.state.collectAsStateWithLifecycle()
     val tx = state.tx
+    val toast = LocalToast.current
+    var confirmingDelete by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
 
     Column(
         Modifier
@@ -344,6 +365,50 @@ fun MovementDetailScreen(navController: NavHostController, txId: String) {
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            if (tx != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Los ajustes (saldo inicial o arqueos) no se editan.
+                    if (tx.kind != TransactionKind.ADJUSTMENT.name) {
+                        OutlineButton(
+                            "Editar movimiento",
+                            onClick = { navController.navigate(Routes.editMovement(tx.id)) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    deleteError?.let { ErrorBox(it) }
+                    if (!confirmingDelete) {
+                        GhostButton(
+                            "Eliminar",
+                            onClick = { confirmingDelete = true },
+                            danger = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        InlineConfirm(
+                            text = "¿Eliminar este movimiento? Los saldos se recalculan.",
+                            confirmLabel = "Sí, eliminar",
+                            busy = deleting,
+                            onCancel = { confirmingDelete = false },
+                            onConfirm = {
+                                deleting = true
+                                deleteError = null
+                                vm.delete(tx.id) { result ->
+                                    deleting = false
+                                    confirmingDelete = false
+                                    when (result) {
+                                        is ActionResult.Success -> {
+                                            toast("Movimiento eliminado")
+                                            navController.popBackStack()
+                                        }
+                                        is ActionResult.Failure -> deleteError = result.error
+                                    }
+                                }
+                            },
+                        )
                     }
                 }
             }

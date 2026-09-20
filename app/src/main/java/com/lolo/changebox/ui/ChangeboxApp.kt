@@ -68,6 +68,7 @@ import com.lolo.changebox.ui.debts.PlanDetailScreen
 import com.lolo.changebox.ui.home.HomeScreen
 import com.lolo.changebox.ui.more.MoreScreen
 import com.lolo.changebox.ui.more.SettingsScreen
+import com.lolo.changebox.ui.movements.EditMovementScreen
 import com.lolo.changebox.ui.movements.MovementDetailScreen
 import com.lolo.changebox.ui.movements.MovementsScreen
 import com.lolo.changebox.ui.rates.RatePairScreen
@@ -84,6 +85,7 @@ object Routes {
     const val REGISTER = "registrar?tipo={tipo}&cuenta={cuenta}"
     const val MOVEMENTS = "movimientos"
     const val MOVEMENT_DETAIL = "movimientos/{id}"
+    const val EDIT_MOVEMENT = "movimientos/{id}/editar"
     const val ACCOUNTS = "cuentas"
     const val NEW_ACCOUNT = "cuentas/nueva"
     const val ACCOUNT_DETAIL = "cuentas/detalle/{id}"
@@ -108,6 +110,7 @@ object Routes {
         "registrar?tipo=${tipo ?: ""}&cuenta=${cuenta ?: ""}"
 
     fun movementDetail(id: String) = "movimientos/$id"
+    fun editMovement(id: String) = "movimientos/$id/editar"
     fun accountDetail(id: String) = "cuentas/detalle/$id"
     fun debts(dir: String? = null) = "deudas?dir=${dir ?: ""}"
     fun debtDetail(id: String) = "deudas/detalle/$id"
@@ -290,6 +293,9 @@ private fun ChangeboxNavHost(navController: NavHostController) {
         composable(Routes.MOVEMENTS) { MovementsScreen(navController) }
         composable(Routes.MOVEMENT_DETAIL) { entry ->
             MovementDetailScreen(navController, entry.arguments?.getString("id").orEmpty())
+        }
+        composable(Routes.EDIT_MOVEMENT) { entry ->
+            EditMovementScreen(navController, entry.arguments?.getString("id").orEmpty())
         }
         composable(Routes.ACCOUNTS) { AccountsScreen(navController) }
         composable(Routes.NEW_ACCOUNT) { NewAccountScreen(navController) }

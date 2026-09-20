@@ -42,7 +42,7 @@ class CashCountRepository(
         val account = accountDao.accountById(accountId)
         val type = account?.let { runCatching { AccountType.valueOf(it.type) }.getOrNull() }
         if (account == null || account.archived || type == null || !type.isCashLike()) {
-            return@guarded fail("Solo se pueden arquear Changeboxs de efectivo")
+            return@guarded fail("Solo se pueden arquear cajas de efectivo")
         }
         if (lines.isEmpty()) return@guarded fail("Indica las cantidades del conteo")
 

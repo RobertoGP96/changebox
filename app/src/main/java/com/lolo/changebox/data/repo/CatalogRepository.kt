@@ -12,8 +12,10 @@ import com.lolo.changebox.data.local.entity.CategoryEntity
 import com.lolo.changebox.data.local.entity.CurrencyEntity
 import com.lolo.changebox.data.local.entity.DenominationEntity
 import com.lolo.changebox.data.ok
+import com.lolo.changebox.domain.AccountType
 import com.lolo.changebox.domain.CurrencyKind
 import com.lolo.changebox.domain.MoneyException
+import com.lolo.changebox.domain.isCashLike
 import com.lolo.changebox.domain.parseAmountToMinor
 
 // Núcleo de monedas, denominaciones, categorías y grupos: port 1:1 de
@@ -80,6 +82,41 @@ class CatalogRepository(private val db: ChangeboxDatabase) {
         }
         dao.setCurrencyActive(currency.id, !currency.active)
         return@guarded ok(!currency.active)
+    }
+
+    /**
+     * Cambia la clasificación de la moneda. Pasar a DIGITAL exige que la
+     * moneda no tenga denominaciones (hay que borrarlas: ocultarlas no basta,
+     * y las usadas no se pueden borrar) ni cuentas de efectivo/caja.
+     */
+    suspend fun setCurrencyKind(
+        currencyId: String,
+        kind: CurrencyKind,
+    ): ActionResult<String> = guarded("No se pudo cambiar la clasificación") {
+        val currency = dao.currencyById(currencyId) ?: return@guarded fail("Moneda no encontrada")
+        if (currency.kind == kind.name) return@guarded ok(currency.id)
+
+        if (kind == CurrencyKind.DIGITAL) {
+            if (dao.denominationCount(currency.id) > 0) {
+                return@guarded fail(
+                    "La moneda tiene denominaciones: elimínalas antes de marcarla como digital"
+                )
+            }
+            // "Cuentas de efectivo o caja" = los tipos que admiten arqueo
+            // físico; la lista sale de isCashLike(), nunca de comparar strings.
+            val cashLikeAccounts = dao.accountCountByTypes(
+                currency.id,
+                AccountType.entries.filter { it.isCashLike() }.map { it.name },
+            )
+            if (cashLikeAccounts > 0) {
+                return@guarded fail(
+                    "Hay cuentas de efectivo o caja en esta moneda: no puede ser digital"
+                )
+            }
+        }
+
+        dao.updateCurrency(currency.copy(kind = kind.name))
+        return@guarded ok(currency.id)
     }
 
     suspend fun setBaseCurrency(currencyId: String): ActionResult<String> = guarded("No se pudo cambiar la moneda base") {

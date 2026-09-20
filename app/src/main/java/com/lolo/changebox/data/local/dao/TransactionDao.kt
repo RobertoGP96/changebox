@@ -3,6 +3,7 @@
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import com.lolo.changebox.data.local.entity.TransactionDenominationEntity
 import com.lolo.changebox.data.local.entity.TransactionEntity
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +46,7 @@ data class TxDenomLineRow(
     val id: String,
     val accountId: String,
     val accountName: String,
+    val denominationId: String,
     val quantity: Int,
     val valueMinor: Long,
     val kind: String,
@@ -72,12 +74,20 @@ data class TxDetailRow(
     val createdAt: Long,
     val accountId: String,
     val accountName: String,
+    val accountType: String,
     val counterAccountId: String?,
     val counterAccountName: String?,
+    val counterAccountType: String?,
+    val counterAccountCurrencyId: String?,
+    val counterAccountCurrencyCode: String?,
+    val counterAccountCurrencyDecimals: Int?,
+    val currencyId: String,
     val currencyCode: String,
     val currencyDecimals: Int,
+    val counterCurrencyId: String?,
     val counterCurrencyCode: String?,
     val counterCurrencyDecimals: Int?,
+    val categoryId: String?,
     val categoryName: String?,
 )
 
@@ -132,16 +142,22 @@ interface TransactionDao {
         """
         SELECT t.id, t.kind, t.amountMinor, t.counterAmountMinor, t.rateScaled,
             t.note, t.occurredAt, t.createdAt,
-            t.accountId, a.name AS accountName,
+            t.accountId, a.name AS accountName, a.type AS accountType,
             t.counterAccountId, ca.name AS counterAccountName,
-            c.code AS currencyCode, c.decimalPlaces AS currencyDecimals,
+            ca.type AS counterAccountType,
+            cac.id AS counterAccountCurrencyId,
+            cac.code AS counterAccountCurrencyCode,
+            cac.decimalPlaces AS counterAccountCurrencyDecimals,
+            t.currencyId, c.code AS currencyCode, c.decimalPlaces AS currencyDecimals,
+            t.counterCurrencyId,
             cc.code AS counterCurrencyCode, cc.decimalPlaces AS counterCurrencyDecimals,
-            cat.name AS categoryName
+            t.categoryId, cat.name AS categoryName
         FROM transactions t
         JOIN accounts a ON a.id = t.accountId
         LEFT JOIN accounts ca ON ca.id = t.counterAccountId
         JOIN currencies c ON c.id = t.currencyId
         LEFT JOIN currencies cc ON cc.id = t.counterCurrencyId
+        LEFT JOIN currencies cac ON cac.id = ca.currencyId
         LEFT JOIN categories cat ON cat.id = t.categoryId
         WHERE t.id = :id
         """
@@ -219,8 +235,8 @@ interface TransactionDao {
     // Desglose de denominaciones del detalle de movimiento, por lado.
     @Query(
         """
-        SELECT l.id, l.accountId, a.name AS accountName, l.quantity,
-            d.valueMinor, d.kind
+        SELECT l.id, l.accountId, a.name AS accountName, l.denominationId,
+            l.quantity, d.valueMinor, d.kind
         FROM transaction_denominations l
         JOIN denominations d ON d.id = l.denominationId
         JOIN accounts a ON a.id = l.accountId
@@ -270,5 +286,22 @@ interface TransactionDao {
         """
     )
     fun planLinkFlow(txId: String): Flow<PlanLinkRow?>
+
+    @Update
+    suspend fun updateTransaction(transaction: TransactionEntity)
+
+    // Al eliminar caen por Cascade los desgloses y el abono vinculado; la
+    // cuota conserva su estado y solo pierde el vínculo (SetNull).
+    @Query("DELETE FROM transactions WHERE id = :id")
+    suspend fun deleteTransaction(id: String)
+
+    // Editar REEMPLAZA el desglose anterior (igual que updateTransaction
+    // en la web): se borra entero y se vuelve a insertar.
+    @Query("DELETE FROM transaction_denominations WHERE transactionId = :txId")
+    suspend fun deleteDenominationLines(txId: String)
+
+    // El ajuste que nació de un arqueo no se puede eliminar por separado.
+    @Query("SELECT id FROM cash_counts WHERE adjustmentTxId = :txId LIMIT 1")
+    suspend fun cashCountIdForTx(txId: String): String?
 }
 
