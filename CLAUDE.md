@@ -35,8 +35,10 @@ arquitectura actual.
   nunca NumberFormat).
 - **Dominio puro** (`domain/`): Money, Format, BalancesCore, RateResolve,
   Counting (sugeridor con backtracking para el billete de 3 CUP), Dates
-  (recurrencia con clamp de fin de mes), MetricsCore, Domain (enums + labels
-  ES). Ports 1:1 de `src/lib/*.ts` de la web, con tests en `app/src/test`.
+  (recurrencia con clamp de fin de mes), MetricsCore, PlansCore,
+  AccountActivity, IncomeSeries, DashboardPrefs, CountShare, Domain (enums +
+  labels ES). `totalsByCurrency` vive en BalancesCore: no reimplementarlo en
+  la UI. Ports 1:1 de `src/lib/*.ts` de la web, con tests en `app/src/test`.
 - **Datos** (`data/local/`): esquema Room v2 espejo del prisma/schema.prisma
   SIN userId ni tablas de sync. Fechas en epoch millis. Los VENCIMIENTOS
   (`dueAt`, `endAt`) van a las 12:00 locales (`atNoonMillis`, como la web),

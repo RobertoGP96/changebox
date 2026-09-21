@@ -76,11 +76,12 @@ interface DebtDao {
         FROM debts d
         JOIN contacts ct ON ct.id = d.contactId
         JOIN currencies cur ON cur.id = d.currencyId
-        WHERE d.direction = :direction
+        WHERE (:direction IS NULL OR d.direction = :direction)
         ORDER BY d.createdAt DESC
         """
     )
-    fun debtsWithMetaFlow(direction: String): Flow<List<DebtWithMeta>>
+    // direction null = ambas (el /deudas de la web no filtra por defecto).
+    fun debtsWithMetaFlow(direction: String?): Flow<List<DebtWithMeta>>
 
     // Próxima cuota pendiente por deuda (solo planes activos).
     @Query(

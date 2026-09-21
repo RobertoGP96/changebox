@@ -22,6 +22,16 @@ data class IncomingGroupRow(
     val sumMinor: Long,
 )
 
+/** Fila liviana del libro mayor de una cuenta (gráfico de actividad). */
+data class AccountLedgerRow(
+    val accountId: String,
+    val counterAccountId: String?,
+    val kind: String,
+    val amountMinor: Long,
+    val counterAmountMinor: Long?,
+    val occurredAt: Long,
+)
+
 @Dao
 interface AccountDao {
 
@@ -35,6 +45,9 @@ interface AccountDao {
         "SELECT * FROM accounts WHERE archived = 0 AND currencyId = :currencyId ORDER BY createdAt ASC"
     )
     fun activeAccountsInCurrencyFlow(currencyId: String): Flow<List<AccountEntity>>
+
+    @Query("SELECT COUNT(*) FROM accounts WHERE archived = 1")
+    fun archivedCountFlow(): Flow<Int>
 
     @Query("SELECT * FROM accounts WHERE id = :id")
     suspend fun accountById(id: String): AccountEntity?
@@ -117,5 +130,23 @@ interface AccountDao {
 
     @Query("SELECT COUNT(*) FROM cash_counts WHERE accountId = :accountId")
     suspend fun cashCountCount(accountId: String): Int
+
+    // ── Libro mayor de una cuenta ───────────────────────────────────────────
+
+    // Libro mayor COMPLETO de la cuenta (ambos lados, campos mínimos) en orden
+    // cronológico, como la consulta `ledger` de cuentas/[id]/page.tsx: sirve
+    // al gráfico de actividad y su longitud cuenta para `hasUsage`.
+    @Query(
+        """
+        SELECT accountId, counterAccountId, kind, amountMinor, counterAmountMinor, occurredAt
+        FROM transactions
+        WHERE accountId = :accountId OR counterAccountId = :accountId
+        ORDER BY occurredAt ASC, createdAt ASC
+        """
+    )
+    fun accountLedgerFlow(accountId: String): Flow<List<AccountLedgerRow>>
+
+    @Query("SELECT COUNT(*) FROM cash_counts WHERE accountId = :accountId")
+    fun cashCountCountFlow(accountId: String): Flow<Int>
 }
 

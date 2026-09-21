@@ -46,6 +46,7 @@ class PlanRepository(private val db: ChangeboxDatabase) {
 
     fun standalonePlansFlow() = planDao.standalonePlansFlow()
     fun planDetailFlow(id: String) = planDao.planDetailFlow(id)
+    fun allPlansFlow() = planDao.allPlansFlow()
     fun installmentsFlow(planId: String, limit: Int = 24) =
         planDao.installmentsFlow(planId, limit)
     fun upcomingInstallmentsFlow(limitMillis: Long) =

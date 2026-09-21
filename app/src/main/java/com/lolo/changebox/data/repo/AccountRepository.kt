@@ -8,6 +8,7 @@ import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.entity.AccountEntity
 import com.lolo.changebox.data.local.entity.TransactionEntity
 import com.lolo.changebox.data.ok
+import com.lolo.changebox.domain.AccountLedgerEntry
 import com.lolo.changebox.domain.AccountType
 import com.lolo.changebox.domain.IncomingTransferGroup
 import com.lolo.changebox.domain.MoneyException
@@ -113,6 +114,30 @@ class AccountRepository(private val db: ChangeboxDatabase) {
         }
 
     fun accountFlow(id: String): Flow<AccountEntity?> = accountDao.accountFlow(id)
+
+    /** Nº de cuentas archivadas (enlace «Archivadas (N)» del listado). */
+    fun archivedCountFlow(): Flow<Int> = accountDao.archivedCountFlow()
+
+    /**
+     * Libro mayor COMPLETO de la cuenta (ambos lados) en orden cronológico
+     * ascendente, con los campos mínimos para `activityDeltas`.
+     */
+    fun accountLedgerFlow(accountId: String): Flow<List<AccountLedgerEntry>> =
+        accountDao.accountLedgerFlow(accountId).map { rows ->
+            rows.map {
+                AccountLedgerEntry(
+                    accountId = it.accountId,
+                    counterAccountId = it.counterAccountId,
+                    kind = it.kind,
+                    amountMinor = it.amountMinor,
+                    counterAmountMinor = it.counterAmountMinor,
+                    occurredAtMillis = it.occurredAt,
+                )
+            }
+        }
+
+    /** Nº de arqueos de la cuenta (junto al libro mayor decide `hasUsage`). */
+    fun cashCountCountFlow(accountId: String): Flow<Int> = accountDao.cashCountCountFlow(accountId)
 
     fun activeAccountsFlow(): Flow<List<AccountEntity>> = accountDao.activeAccountsFlow()
 

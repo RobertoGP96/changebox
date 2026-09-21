@@ -66,3 +66,24 @@ class BalancesFromGroupsTest {
     }
 }
 
+class TotalsByCurrencyTest {
+    private data class Cur(val id: String)
+    private val cup = Cur("cup")
+    private val usd = Cur("usd")
+
+    @Test
+    fun `agrupa saldos por moneda conservando el orden de aparicion`() {
+        val totals = totalsByCurrency(
+            listOf(cup to 4000L, usd to 250L, cup to -1500L),
+        ) { it.id }
+        assertEquals(
+            listOf(CurrencyTotal(cup, 2500L), CurrencyTotal(usd, 250L)),
+            totals,
+        )
+    }
+
+    @Test
+    fun `sin cuentas devuelve lista vacia`() {
+        assertEquals(emptyList<CurrencyTotal<Cur>>(), totalsByCurrency(emptyList<Pair<Cur, Long>>()) { it.id })
+    }
+}

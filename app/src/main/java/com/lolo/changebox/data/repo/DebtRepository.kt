@@ -46,7 +46,7 @@ class DebtRepository(private val db: ChangeboxDatabase) {
     private val catalogDao = db.catalogDao()
     private val txDao = db.transactionDao()
 
-    fun debtsWithMetaFlow(direction: String) = debtDao.debtsWithMetaFlow(direction)
+    fun debtsWithMetaFlow(direction: String?) = debtDao.debtsWithMetaFlow(direction)
     fun debtWithMetaFlow(id: String) = debtDao.debtWithMetaFlow(id)
     fun nextDueByDebtFlow() = debtDao.nextDueByDebtFlow()
     fun paymentsFlow(debtId: String) = debtDao.paymentsFlow(debtId)

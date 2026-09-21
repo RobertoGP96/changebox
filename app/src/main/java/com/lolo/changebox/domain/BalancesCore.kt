@@ -43,3 +43,27 @@ fun balancesFromGroups(
     return balances
 }
 
+/** Total de una divisa (sin conversión). */
+data class CurrencyTotal<C>(val currency: C, val totalMinor: Long)
+
+/**
+ * Suma saldos por moneda SIN convertir, en orden de primera aparición. Port
+ * de `totalsByCurrency` de balances-core.ts: la usan los chips por divisa de
+ * los grupos de cuentas y el gadget de totales por moneda de Inicio.
+ */
+fun <C> totalsByCurrency(
+    accounts: List<Pair<C, Long>>,
+    currencyId: (C) -> String,
+): List<CurrencyTotal<C>> {
+    val byId = LinkedHashMap<String, CurrencyTotal<C>>()
+    for ((currency, balanceMinor) in accounts) {
+        val id = currencyId(currency)
+        val existing = byId[id]
+        byId[id] = if (existing != null) {
+            existing.copy(totalMinor = existing.totalMinor + balanceMinor)
+        } else {
+            CurrencyTotal(currency, balanceMinor)
+        }
+    }
+    return byId.values.toList()
+}

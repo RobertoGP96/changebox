@@ -13,7 +13,7 @@ Estado por fases:
 |---|---|
 | 0 — Sanear el repo | **Hecha** |
 | 1 — Paridad de esquema y dominio | **Hecha** |
-| 2 — Paridad funcional | **En curso** (5 de 9 puntos) |
+| 2 — Paridad funcional | **Hecha** (con desvíos menores anotados) |
 | 3 — Servidor: servicios + API móvil | Pendiente |
 | 4 — Cliente: red y sincronización | Pendiente |
 | 5 — Funciones que necesitan red | Pendiente |
@@ -190,11 +190,19 @@ destructivo: el fallback queda solo como red de seguridad. Lo aplicado:
 - Copys: "Saldada" (cuota PAID), "Crear mensualidad"/"Mensualidad creada",
   "Finalizar mensualidad", "Activa/Finalizada".
 
-### Fase 2 — Paridad funcional — EN CURSO
+### Fase 2 — Paridad funcional — HECHA
 
-Hechos: 1 (editar/eliminar movimientos), 4 (registrar), 5 (orden
-cronológico), 6 (monedas digitales) y 9 (compartir conteo).
-Pendientes: 2 (mensualidades), 3 (deudas), 7 (cuentas) y 8 (inicio).
+Los 9 puntos están implementados. Desvíos conocidos respecto a la web,
+pendientes de pulir (ninguno cambia reglas de negocio):
+
+- Inicio: el reordenado de gadgets es con flechas en «Personalizar Inicio»,
+  no por arrastre; rejilla de 2 columnas (sin layouts de escritorio).
+- Mensualidades y Deudas: el filtro elegido vive en el estado de la
+  pantalla, no en la ruta; el saldar embebido no tiene el «Cambiar» que
+  esconde el selector de cuenta cuando ya hay cuenta vinculada.
+- Deuda: «Ver mensualidad» enlaza al plan de la primera cuota pendiente
+  (la web usa el primer plan activo; coinciden con un solo plan).
+- Cuentas: sin el tooltip «Consolidado en X» del subtotal (no hay hover).
 
 En orden de valor para quien ya usa la web:
 
