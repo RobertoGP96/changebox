@@ -14,7 +14,7 @@ Estado por fases:
 | 0 — Sanear el repo | **Hecha** |
 | 1 — Paridad de esquema y dominio | **Hecha** |
 | 2 — Paridad funcional | **Hecha** (con desvíos menores anotados) |
-| 3 — Servidor: servicios + API móvil | **En curso** (rama `feat/api-movil` de la web) |
+| 3 — Servidor: servicios + API móvil | **Hecha en código** (rama `feat/api-movil` de la web). Falta aplicar la migración y desplegar |
 | 4 — Cliente: red y sincronización | Pendiente |
 | 5 — Funciones que necesitan red | Pendiente |
 | 6 — QA y release | Pendiente |
@@ -244,7 +244,25 @@ En orden de valor para quien ya usa la web:
 9. **Calculadora**: botón Compartir con `buildCountShareText` (hoja de
    compartir nativa).
 
-### Fase 3 — Servidor: servicios + fundación de sync + API móvil (~1,5-2 semanas, en la web)
+### Fase 3 — Servidor: servicios + API móvil — HECHA EN CÓDIGO
+
+Implementada en la rama `feat/api-movil` de la web. El contrato completo está
+en `fantastic-eureka/docs/mobile-api.md` y es la referencia de la Fase 4.
+Lo que quedó distinto del plan original:
+
+- Un cursor inválido, en el futuro o de más de 60 días fuerza un pull
+  completo (`resync`).
+- Movimientos y arqueos viajan con sus líneas embebidas, así que no hay
+  lápidas por línea.
+- Compartir cuenta y cambiar contraseña NO van por el push: tendrán
+  endpoints directos en la Fase 5.
+- El push aborta la transacción de una operación rechazada aunque su
+  servicio ya hubiera escrito: todo o nada por operación.
+
+Pendiente, a cargo del dueño del proyecto: revisar la rama, aplicar la
+migración con `pnpm db:deploy` y desplegar.
+
+Plan original (referencia):
 
 1. Verificar el estado real de la BD (§6) y **traer al repo** la migración
    `mobile_sync_foundation` (o recrearla con `prisma migrate diff` desde la
