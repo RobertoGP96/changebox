@@ -14,7 +14,7 @@ Estado por fases:
 | 0 — Sanear el repo | **Hecha** |
 | 1 — Paridad de esquema y dominio | **Hecha** |
 | 2 — Paridad funcional | **Hecha** (con desvíos menores anotados) |
-| 3 — Servidor: servicios + API móvil | Pendiente |
+| 3 — Servidor: servicios + API móvil | **En curso** (rama `feat/api-movil` de la web) |
 | 4 — Cliente: red y sincronización | Pendiente |
 | 5 — Funciones que necesitan red | Pendiente |
 | 6 — QA y release | Pendiente |
@@ -52,11 +52,12 @@ Estado por fases:
 - **Lógica de negocio en server actions** (`src/app/actions/*.ts`, ~2 900
   líneas) acopladas a `getSessionUser()` (cookies) y `revalidatePath`.
   Para reutilizarla desde una API hay que extraerla.
-- **Migración fantasma**: el CLAUDE.md de la web dice que la BD Neon tiene
-  aplicada `20260715233430_mobile_sync_foundation` (añade `updatedAt` a
-  varias tablas) que **no está en el repo**. No pude verificarlo desde esta
-  sesión (lectura de la BD de producción denegada). Es el primer punto a
-  comprobar (ver §6).
+- **Migración fantasma: descartada.** El CLAUDE.md de la web decía que la
+  BD Neon tenía aplicada `20260715233430_mobile_sync_foundation`.
+  `prisma migrate status` (2026-09-22) dice: 7 migraciones en el repo y
+  "Database schema is up to date!", así que esa migración NO está registrada
+  en la base. Como `migrate status` no ve columnas añadidas con `db push`,
+  la migración de sync usa `IF NOT EXISTS` por prudencia.
 - Montos son `Int` de 32 bits en Prisma (`PRISMA_INT_MAX`); la APK usa
   `Long` pero ya valida `SERVER_INT_MAX` con el mismo valor.
 
