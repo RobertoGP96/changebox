@@ -1,5 +1,8 @@
 ﻿package com.lolo.changebox.data
 
+import android.util.Log
+import kotlin.coroutines.cancellation.CancellationException
+
 // Contrato de resultados de los servicios, espejo del ActionResult de la web:
 // los fallos de NEGOCIO devuelven Failure con mensaje amigable en español;
 // los errores inesperados de infraestructura se propagan como excepción.
@@ -18,4 +21,31 @@ fun fail(error: String): ActionResult.Failure = ActionResult.Failure(error)
  * dentro — patrón anti doble-envío heredado de la web).
  */
 class ActionError(message: String) : Exception(message)
+
+/**
+ * Red de seguridad de una operación de escritura, equivalente al `try/catch`
+ * que envuelve cada server action de la web: un fallo inesperado (una
+ * `SQLiteException` de clave foránea, por ejemplo) se convierte en un
+ * `Failure` con mensaje amigable en vez de tumbar la app.
+ *
+ * `ActionError` NO es inesperado: es el mensaje de negocio que lanzan las
+ * validaciones releídas dentro de la transacción, así que pasa tal cual.
+ *
+ * `fallback` es el texto genérico de la web para esa operación, p. ej.
+ * "No se pudo crear la cuenta".
+ */
+suspend fun <T> guarded(
+    fallback: String,
+    block: suspend () -> ActionResult<T>,
+): ActionResult<T> = try {
+    block()
+} catch (e: ActionError) {
+    fail(e.message ?: fallback)
+} catch (e: CancellationException) {
+    // Cancelar una corrutina no es un fallo: debe propagarse.
+    throw e
+} catch (e: Exception) {
+    Log.e("Changebox", fallback, e)
+    fail(fallback)
+}
 

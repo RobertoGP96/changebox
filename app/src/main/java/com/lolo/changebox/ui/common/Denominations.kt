@@ -55,7 +55,7 @@ data class CounterDenomination(
     val id: String,
     val valueMinor: Long,
     val kind: String,
-    /** Texto extra junto al tipo (ej. "quedan 4" en Changeboxs con stock). */
+    /** Texto extra junto al tipo (ej. "quedan 4" en cajas con stock). */
     val hint: String? = null,
     /** Stock derivado (solo informativo/sugerencias en salidas). */
     val available: Int? = null,
@@ -198,9 +198,16 @@ private fun QtyInput(qty: Int, onChange: (Int) -> Unit) {
 }
 
 /**
- * Desglose de denominaciones de un movimiento sobre una caja CASH_BOX. Con el
- * monto ya escrito, «Sugerir» rellena una distribución exacta (mayor-primero
- * con backtracking); en salidas respeta el stock derivado.
+ * Desglose de denominaciones de un movimiento sobre una caja CASH_BOX.
+ * El flujo normal es contar primero: el total del desglose se muestra en
+ * grande y, con [drivesAmount], el formulario dueño rellena el monto con él.
+ * El camino inverso sigue vivo: con el monto ya escrito, «Sugerir» rellena
+ * una distribución exacta (mayor-primero con backtracking); en salidas
+ * respeta el stock derivado.
+ *
+ * @param outflow true = el dinero SALE de la caja (limita sugerencias al stock).
+ * @param drivesAmount true = el formulario copia el total del desglose al
+ *   campo de monto.
  */
 @Composable
 fun DenominationBreakdownField(
@@ -211,6 +218,7 @@ fun DenominationBreakdownField(
     quantities: Map<String, Int>,
     onQtyChange: (Map<String, Int>) -> Unit,
     outflow: Boolean,
+    drivesAmount: Boolean = false,
 ) {
     var suggestError by remember { mutableStateOf<String?>(null) }
 
@@ -312,7 +320,10 @@ fun DenominationBreakdownField(
                 modifier = Modifier.weight(1f),
             )
             when {
-                targetMinor == null -> ChangeboxBadge("Escribe el monto", BadgeVariant.NEUTRAL)
+                targetMinor == null -> ChangeboxBadge(
+                    if (drivesAmount) "Cuenta las piezas" else "Escribe el monto",
+                    BadgeVariant.NEUTRAL,
+                )
                 matches -> ChangeboxBadge("Cuadra", BadgeVariant.OK)
                 totalMinor > targetMinor -> ChangeboxBadge(
                     "Sobra ${fmtMinor(totalMinor - targetMinor, currency)}",
@@ -323,6 +334,15 @@ fun DenominationBreakdownField(
                     if (started) BadgeVariant.DANGER else BadgeVariant.WARN,
                 )
             }
+        }
+
+        if (drivesAmount) {
+            Text(
+                "El monto se rellena solo con lo que cuentes aquí. También puedes " +
+                    "escribir el monto y usar «Sugerir distribución».",
+                fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         suggestError?.let { ErrorBox(it) }

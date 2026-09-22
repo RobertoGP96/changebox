@@ -33,6 +33,7 @@ import androidx.navigation.NavHostController
 import com.composables.icons.lucide.ArrowRightLeft
 import com.composables.icons.lucide.Banknote
 import com.composables.icons.lucide.Calculator
+import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Coins
 import com.composables.icons.lucide.History
@@ -54,7 +55,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// Más opciones: accesos a conteo, calculadora, tasas, movimientos, categorías
+// Más opciones: accesos a mensualidades, conteo, calculadora, tasas, movimientos, categorías
 // y monedas + los ajustes locales (la app offline no tiene sesión ni perfil
 // remoto) — port de mas/page.tsx sin el bloque de cerrar sesión.
 
@@ -67,8 +68,12 @@ private data class MenuItem(
 
 private val ITEMS = listOf(
     MenuItem(
+        Routes.monthlyPlans(), Lucide.CalendarClock,
+        "Mensualidades", "Renta, suscripciones y cuotas fijas",
+    ),
+    MenuItem(
         Routes.COUNTING, Lucide.Banknote,
-        "Conteo de efectivo", "Arqueo de Changeboxs con denominaciones",
+        "Conteo de efectivo", "Arqueo de cajas con denominaciones",
     ),
     MenuItem(
         Routes.CALCULATOR, Lucide.Calculator,

@@ -30,12 +30,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
+import com.composables.icons.lucide.Banknote
+import com.composables.icons.lucide.CreditCard
 import com.composables.icons.lucide.EllipsisVertical
 import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.EyeOff
@@ -47,9 +50,11 @@ import com.lolo.changebox.data.local.dao.DenominationWithUsage
 import com.lolo.changebox.data.local.entity.CurrencyEntity
 import com.lolo.changebox.di.AppContainer
 import com.lolo.changebox.di.appViewModel
+import com.lolo.changebox.domain.CurrencyKind
 import com.lolo.changebox.domain.DenominationKind
 import com.lolo.changebox.domain.DisplayCurrencyOf
 import com.lolo.changebox.domain.fmtMinor
+import com.lolo.changebox.domain.isDigitalCurrencyKind
 import com.lolo.changebox.domain.minorToAmountInput
 import com.lolo.changebox.ui.common.BadgeVariant
 import com.lolo.changebox.ui.common.ChangeboxBadge
@@ -57,8 +62,10 @@ import com.lolo.changebox.ui.common.ChangeboxCard
 import com.lolo.changebox.ui.common.ChangeboxTextField
 import com.lolo.changebox.ui.common.ErrorBox
 import com.lolo.changebox.ui.common.GhostButton
+import com.lolo.changebox.ui.common.IconChip
 import com.lolo.changebox.ui.common.InlineConfirm
 import com.lolo.changebox.ui.common.LocalToast
+import com.lolo.changebox.ui.common.OutlineButton
 import com.lolo.changebox.ui.common.PrimaryButton
 import com.lolo.changebox.ui.common.ScreenHeader
 import com.lolo.changebox.ui.common.SectionTitle
@@ -101,6 +108,10 @@ class CurrencyDetailViewModel(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CurrencyDetailState())
 
+    fun setKind(kind: CurrencyKind, onResult: (ActionResult<String>) -> Unit) {
+        viewModelScope.launch { onResult(container.catalog.setCurrencyKind(currencyId, kind)) }
+    }
+
     fun create(value: String, kind: String, onResult: (ActionResult<String>) -> Unit) {
         viewModelScope.launch {
             onResult(container.catalog.createDenomination(currencyId, value, kind))
@@ -137,6 +148,10 @@ fun CurrencyDetailScreen(navController: NavHostController, currencyId: String) {
     var editValue by remember { mutableStateOf("") }
     var editKind by remember { mutableStateOf("BILL") }
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
+    // Conversión efectivo ⇄ digital (con confirmación inline).
+    var confirmingKind by remember { mutableStateOf(false) }
+    var savingKind by remember { mutableStateOf(false) }
+    var kindError by remember { mutableStateOf<String?>(null) }
 
     Column(
         Modifier
@@ -153,8 +168,10 @@ fun CurrencyDetailScreen(navController: NavHostController, currencyId: String) {
                     buildString {
                         append("${currency.decimalPlaces} decimales")
                         if (currency.isBase) append(" · Moneda base")
-                        if (state.denominations.isEmpty()) {
-                            append(" · Sin denominaciones (solo saldo digital)")
+                        if (isDigitalCurrencyKind(currency.kind)) {
+                            append(" · Digital (sin efectivo)")
+                        } else if (state.denominations.isEmpty()) {
+                            append(" · Sin denominaciones")
                         }
                     },
                     color = Color.White.copy(alpha = 0.7f),
@@ -172,6 +189,91 @@ fun CurrencyDetailScreen(navController: NavHostController, currencyId: String) {
                 .padding(horizontal = 20.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            val isDigital = isDigitalCurrencyKind(currency.kind)
+            val nextKind = if (isDigital) CurrencyKind.CASH else CurrencyKind.DIGITAL
+
+            // Clasificación de la moneda (efectivo ⇄ digital) con confirmación
+            // inline; pasar a digital lo valida el repo: sin denominaciones ni
+            // cuentas de efectivo/caja en esta moneda.
+            ChangeboxCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        IconChip(
+                            if (isDigital) Lucide.CreditCard else Lucide.Banknote,
+                            size = 40,
+                            corner = 12,
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                CurrencyKind.from(currency.kind).labelEs,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                if (isDigital) "Solo saldo: sin denominaciones ni cuentas de caja."
+                                else "Admite denominaciones, arqueos y cuentas de caja.",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (confirmingKind) {
+                        InlineConfirm(
+                            text = if (isDigital) "¿Convertir a efectivo?"
+                            else "¿Convertir a digital?",
+                            confirmLabel = if (savingKind) "Guardando…" else "Confirmar",
+                            onConfirm = {
+                                savingKind = true
+                                kindError = null
+                                vm.setKind(nextKind) { result ->
+                                    savingKind = false
+                                    confirmingKind = false
+                                    when (result) {
+                                        is ActionResult.Success -> toast(
+                                            if (nextKind == CurrencyKind.DIGITAL)
+                                                "Moneda marcada como digital"
+                                            else "Moneda marcada como efectivo"
+                                        )
+                                        is ActionResult.Failure -> kindError = result.error
+                                    }
+                                }
+                            },
+                            onCancel = { confirmingKind = false },
+                            busy = savingKind,
+                        )
+                    } else {
+                        OutlineButton(
+                            if (isDigital) "Convertir a efectivo" else "Convertir a digital",
+                            onClick = {
+                                kindError = null
+                                confirmingKind = true
+                            },
+                        )
+                    }
+                    kindError?.let { ErrorBox(it) }
+                }
+            }
+
+            // La web oculta la gestión de denominaciones en las monedas
+            // digitales: no existen en efectivo, así que no llevan billetes.
+            if (isDigital) {
+                ChangeboxCard(corner = 16) {
+                    Text(
+                        "Esta moneda es digital: no existe en efectivo, así que no lleva billetes ni monedas. Conviértela a efectivo si necesitas denominaciones.",
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                return@Column
+            }
+
             // Alta de denominación
             ChangeboxCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

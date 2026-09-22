@@ -19,13 +19,14 @@ data class DefaultCurrency(
     val symbol: String,
     val decimalPlaces: Int,
     val isBase: Boolean,
+    val kind: String,
     val denominations: List<DefaultDenomination>,
 )
 
 val DEFAULT_CURRENCIES: List<DefaultCurrency> = listOf(
     DefaultCurrency(
         code = "CUP", name = "Peso cubano", symbol = "$",
-        decimalPlaces = 0, isBase = true,
+        decimalPlaces = 0, isBase = true, kind = "CASH",
         denominations = listOf(
             bill(1000), bill(500), bill(200), bill(100), bill(50),
             bill(20), bill(10), bill(5), bill(3), bill(1),
@@ -34,7 +35,7 @@ val DEFAULT_CURRENCIES: List<DefaultCurrency> = listOf(
     ),
     DefaultCurrency(
         code = "USD", name = "Dólar estadounidense", symbol = "$",
-        decimalPlaces = 2, isBase = false,
+        decimalPlaces = 2, isBase = false, kind = "CASH",
         denominations = listOf(
             bill(10000), bill(5000), bill(2000), bill(1000),
             bill(500), bill(200), bill(100),
@@ -43,17 +44,17 @@ val DEFAULT_CURRENCIES: List<DefaultCurrency> = listOf(
     ),
     DefaultCurrency(
         code = "EUR", name = "Euro", symbol = "€",
-        decimalPlaces = 2, isBase = false,
+        decimalPlaces = 2, isBase = false, kind = "CASH",
         denominations = listOf(
             bill(50000), bill(20000), bill(10000), bill(5000),
             bill(2000), bill(1000), bill(500),
             coin(200), coin(100), coin(50), coin(20), coin(10), coin(5), coin(2), coin(1),
         ),
     ),
-    // MLC es saldo de tarjeta: sin denominaciones físicas.
+    // MLC es saldo de tarjeta: digital, sin denominaciones físicas.
     DefaultCurrency(
         code = "MLC", name = "Moneda libremente convertible", symbol = "$",
-        decimalPlaces = 2, isBase = false,
+        decimalPlaces = 2, isBase = false, kind = "DIGITAL",
         denominations = emptyList(),
     ),
 )
@@ -111,6 +112,7 @@ suspend fun seedDefaultsIfEmpty(db: ChangeboxDatabase) {
             symbol = currency.symbol,
             decimalPlaces = currency.decimalPlaces,
             isBase = currency.isBase,
+            kind = currency.kind,
         )
         catalog.insertCurrency(saved)
         if (currency.denominations.isNotEmpty()) {

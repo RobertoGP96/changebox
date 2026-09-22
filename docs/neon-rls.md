@@ -1,5 +1,11 @@
 # Neon RLS (JWT): aislamiento real por usuario, sin servidor
 
+> **HISTÓRICO — no describe este código.** Documenta un prototipo con
+> sincronización (outbox, SyncEngine, Neon directo, Neon Auth) que NO existe
+> en este repo: la app es 100 % offline. Se conserva como material de
+> referencia para las fases 3 y siguientes de
+> [plan-paridad-y-sincronizacion.md](plan-paridad-y-sincronizacion.md).
+
 Objetivo: que un usuario del APK pueda registrarse, leer y sincronizar
 **directo contra Neon** sin recibir la cadena del dueño de la base. Con RLS
 activado, cada identidad solo ve y toca **sus** filas; la cadena que se

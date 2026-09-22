@@ -430,7 +430,7 @@ fun NewPlanScreen(navController: NavHostController) {
             error?.let { ErrorBox(it) }
 
             PrimaryButton(
-                text = if (saving) "Creando…" else "Crear plan",
+                text = if (saving) "Creando…" else "Crear mensualidad",
                 onClick = {
                     saving = true
                     error = null
@@ -450,7 +450,7 @@ fun NewPlanScreen(navController: NavHostController) {
                         saving = false
                         when (result) {
                             is ActionResult.Success -> {
-                                toast("Plan creado")
+                                toast("Mensualidad creada")
                                 navController.popBackStack()
                                 navController.navigate(Routes.planDetail(result.data))
                             }

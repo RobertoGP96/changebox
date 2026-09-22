@@ -42,6 +42,8 @@ import com.lolo.changebox.data.local.entity.CurrencyEntity
 import com.lolo.changebox.di.AppContainer
 import com.lolo.changebox.di.appViewModel
 import com.lolo.changebox.domain.AccountType
+import com.lolo.changebox.domain.isCashLike
+import com.lolo.changebox.domain.isDigitalCurrencyKind
 import com.lolo.changebox.ui.Routes
 import com.lolo.changebox.ui.common.ChangeboxSelect
 import com.lolo.changebox.ui.common.ChangeboxTextField
@@ -151,6 +153,26 @@ fun NewAccountScreen(navController: NavHostController) {
         if (currencyId.isEmpty()) currencyId = data.currencies.firstOrNull()?.id ?: ""
     }
 
+    // Las monedas digitales no existen en efectivo: para tipos de caja se
+    // ocultan del selector (y el repo lo re-valida al crear la cuenta).
+    val cashLike = AccountType.entries.firstOrNull { it.name == type }?.isCashLike() == true
+    val eligibleCurrencies =
+        if (cashLike) data.currencies.filter { !isDigitalCurrencyKind(it.kind) }
+        else data.currencies
+    val hiddenDigitalCount = data.currencies.size - eligibleCurrencies.size
+
+    // Al pasar a un tipo de caja con una moneda digital elegida, salta a la
+    // primera elegible.
+    val pickType: (String) -> Unit = { nextType ->
+        type = nextType
+        val nextCashLike =
+            AccountType.entries.firstOrNull { it.name == nextType }?.isCashLike() == true
+        val currentKind = data.currencies.find { it.id == currencyId }?.kind ?: "CASH"
+        if (nextCashLike && isDigitalCurrencyKind(currentKind)) {
+            currencyId = data.currencies.firstOrNull { !isDigitalCurrencyKind(it.kind) }?.id ?: ""
+        }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -181,7 +203,7 @@ fun NewAccountScreen(navController: NavHostController) {
                             "CASH_BOX" to AccountType.CASH_BOX.labelEs,
                         ),
                         selectedKey = type,
-                        onSelect = { type = it },
+                        onSelect = pickType,
                     )
                     SegmentedTabs(
                         options = listOf(
@@ -189,7 +211,7 @@ fun NewAccountScreen(navController: NavHostController) {
                             "DIGITAL" to AccountType.DIGITAL.labelEs,
                         ),
                         selectedKey = type,
-                        onSelect = { type = it },
+                        onSelect = pickType,
                     )
                 }
             }
@@ -198,10 +220,17 @@ fun NewAccountScreen(navController: NavHostController) {
                 IconPicker(icon) { icon = it }
             }
 
-            LabeledField("Moneda") {
+            LabeledField(
+                "Moneda",
+                hint = if (cashLike && hiddenDigitalCount > 0) {
+                    "Las monedas digitales no aparecen: no existen en efectivo."
+                } else {
+                    null
+                },
+            ) {
                 ChangeboxSelect(
-                    options = data.currencies,
-                    selected = data.currencies.find { it.id == currencyId },
+                    options = eligibleCurrencies,
+                    selected = eligibleCurrencies.find { it.id == currencyId },
                     onSelect = { currencyId = it.id },
                     display = { "${it.code} · ${it.name}" },
                     placeholder = "Elige moneda",

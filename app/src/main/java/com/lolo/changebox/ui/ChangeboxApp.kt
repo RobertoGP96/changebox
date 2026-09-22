@@ -50,6 +50,7 @@ import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.Wallet
 import com.lolo.changebox.ui.accounts.AccountDetailScreen
 import com.lolo.changebox.ui.accounts.AccountsScreen
+import com.lolo.changebox.ui.accounts.ArchivedAccountsScreen
 import com.lolo.changebox.ui.accounts.GroupsScreen
 import com.lolo.changebox.ui.accounts.NewAccountScreen
 import com.lolo.changebox.ui.catalog.CategoriesScreen
@@ -63,11 +64,13 @@ import com.lolo.changebox.ui.counting.CountingScreen
 import com.lolo.changebox.ui.debts.DebtDetailScreen
 import com.lolo.changebox.ui.debts.DebtsScreen
 import com.lolo.changebox.ui.debts.NewDebtScreen
+import com.lolo.changebox.ui.debts.MonthlyPlansScreen
 import com.lolo.changebox.ui.debts.NewPlanScreen
 import com.lolo.changebox.ui.debts.PlanDetailScreen
 import com.lolo.changebox.ui.home.HomeScreen
 import com.lolo.changebox.ui.more.MoreScreen
 import com.lolo.changebox.ui.more.SettingsScreen
+import com.lolo.changebox.ui.movements.EditMovementScreen
 import com.lolo.changebox.ui.movements.MovementDetailScreen
 import com.lolo.changebox.ui.movements.MovementsScreen
 import com.lolo.changebox.ui.rates.RatePairScreen
@@ -84,6 +87,7 @@ object Routes {
     const val REGISTER = "registrar?tipo={tipo}&cuenta={cuenta}"
     const val MOVEMENTS = "movimientos"
     const val MOVEMENT_DETAIL = "movimientos/{id}"
+    const val EDIT_MOVEMENT = "movimientos/{id}/editar"
     const val ACCOUNTS = "cuentas"
     const val NEW_ACCOUNT = "cuentas/nueva"
     const val ACCOUNT_DETAIL = "cuentas/detalle/{id}"
@@ -91,8 +95,12 @@ object Routes {
     const val DEBTS = "deudas?dir={dir}"
     const val NEW_DEBT = "deudas/nueva"
     const val DEBT_DETAIL = "deudas/detalle/{id}"
-    const val NEW_PLAN = "deudas/plan/nuevo"
-    const val PLAN_DETAIL = "deudas/plan/detalle/{id}"
+    // Mensualidades: vista propia, como /mensualidades en la web. La ruta
+    // literal "nueva" se registra ANTES que la de {id} en el NavHost.
+    const val MONTHLY_PLANS = "mensualidades?tipo={tipo}"
+    const val NEW_PLAN = "mensualidades/nueva"
+    const val PLAN_DETAIL = "mensualidades/{id}"
+    const val ARCHIVED_ACCOUNTS = "cuentas/archivadas"
     const val COUNTING = "conteo"
     const val CASH_COUNT = "conteo/{accountId}"
     const val CALCULATOR = "calculadora"
@@ -108,10 +116,13 @@ object Routes {
         "registrar?tipo=${tipo ?: ""}&cuenta=${cuenta ?: ""}"
 
     fun movementDetail(id: String) = "movimientos/$id"
+    fun editMovement(id: String) = "movimientos/$id/editar"
     fun accountDetail(id: String) = "cuentas/detalle/$id"
     fun debts(dir: String? = null) = "deudas?dir=${dir ?: ""}"
     fun debtDetail(id: String) = "deudas/detalle/$id"
-    fun planDetail(id: String) = "deudas/plan/detalle/$id"
+    fun planDetail(id: String) = "mensualidades/$id"
+    /** tipo = "pagar" | "cobrar" | null (todas), como ?tipo= de la web. */
+    fun monthlyPlans(tipo: String? = null) = "mensualidades?tipo=${tipo ?: ""}"
     fun cashCount(accountId: String) = "conteo/$accountId"
     fun currencyDetail(id: String) = "monedas/$id"
     fun ratePair(from: String, to: String) = "tasas/$from/$to"
@@ -132,7 +143,10 @@ private val LEFT_ITEMS = listOf(
 )
 
 private val RIGHT_ITEMS = listOf(
-    NavItem(Routes.DEBTS, Lucide.HandCoins, "Deudas") { it.startsWith("deudas") },
+    NavItem(Routes.DEBTS, Lucide.HandCoins, "Deudas") {
+        // Las mensualidades cuelgan de la pestaña Deudas, como en la web.
+        it.startsWith("deudas") || it.startsWith("mensualidades")
+    },
     NavItem(Routes.MORE, Lucide.Menu, "Más") {
         it.startsWith("mas") || it.startsWith("tasas") || it.startsWith("movimientos") ||
             it.startsWith("categorias") || it.startsWith("monedas") ||
@@ -291,12 +305,16 @@ private fun ChangeboxNavHost(navController: NavHostController) {
         composable(Routes.MOVEMENT_DETAIL) { entry ->
             MovementDetailScreen(navController, entry.arguments?.getString("id").orEmpty())
         }
+        composable(Routes.EDIT_MOVEMENT) { entry ->
+            EditMovementScreen(navController, entry.arguments?.getString("id").orEmpty())
+        }
         composable(Routes.ACCOUNTS) { AccountsScreen(navController) }
         composable(Routes.NEW_ACCOUNT) { NewAccountScreen(navController) }
         composable(Routes.ACCOUNT_DETAIL) { entry ->
             AccountDetailScreen(navController, entry.arguments?.getString("id").orEmpty())
         }
         composable(Routes.GROUPS) { GroupsScreen(navController) }
+        composable(Routes.ARCHIVED_ACCOUNTS) { ArchivedAccountsScreen(navController) }
         composable(
             Routes.DEBTS,
             arguments = listOf(navArgument("dir") { defaultValue = "" }),
@@ -307,6 +325,13 @@ private fun ChangeboxNavHost(navController: NavHostController) {
         composable(Routes.DEBT_DETAIL) { entry ->
             DebtDetailScreen(navController, entry.arguments?.getString("id").orEmpty())
         }
+        composable(
+            Routes.MONTHLY_PLANS,
+            arguments = listOf(navArgument("tipo") { defaultValue = "" }),
+        ) { entry ->
+            MonthlyPlansScreen(navController, entry.arguments?.getString("tipo").orEmpty())
+        }
+        // "mensualidades/nueva" va antes que "mensualidades/{id}".
         composable(Routes.NEW_PLAN) { NewPlanScreen(navController) }
         composable(Routes.PLAN_DETAIL) { entry ->
             PlanDetailScreen(navController, entry.arguments?.getString("id").orEmpty())

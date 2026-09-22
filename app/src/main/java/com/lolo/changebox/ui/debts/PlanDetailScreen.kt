@@ -2,6 +2,8 @@
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +33,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.UserRound
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.local.dao.PlanDetailRow
 import com.lolo.changebox.data.local.entity.AccountEntity
@@ -43,6 +46,7 @@ import com.lolo.changebox.domain.Frequency
 import com.lolo.changebox.domain.PlanKind
 import com.lolo.changebox.domain.daysUntil
 import com.lolo.changebox.domain.dueLabel
+import com.lolo.changebox.domain.dueTone
 import com.lolo.changebox.domain.fmtMinor
 import com.lolo.changebox.domain.minorToInput
 import com.lolo.changebox.ui.Routes
@@ -65,7 +69,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 // Detalle de plan de cuotas: próxima cuota (settle/omitir), cuenta vinculada,
-// desactivar/eliminar e historial de cuotas — port de deudas/plan/[id].
+// desactivar/eliminar e historial de cuotas — port de mensualidades/[id].
 
 data class PlanDetailState(
     val loaded: Boolean = false,
@@ -121,6 +125,7 @@ class PlanDetailViewModel(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlanDetailScreen(navController: NavHostController, planId: String) {
     val vm = appViewModel(key = "plan-$planId") { PlanDetailViewModel(it, planId) }
@@ -146,27 +151,70 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
             onBack = { navController.popBackStack() },
         ) {
             if (plan != null && display != null) {
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                val contactName = row?.contactName ?: row?.debtContactName
+                val paidCount = state.installments.count { it.status == "PAID" }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            fmtMinor(plan.amountMinor, display),
+                            color = Color.White,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp,
+                        )
+                        Text(
+                            buildString {
+                                append(
+                                    runCatching { PlanKind.valueOf(plan.kind).labelEs }
+                                        .getOrDefault(plan.kind)
+                                )
+                                append(" · ")
+                                append(
+                                    runCatching { Frequency.valueOf(plan.frequency).labelEs }
+                                        .getOrDefault(plan.frequency)
+                                )
+                            },
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 12.5.sp,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    ChangeboxBadge(if (plan.active) "Activa" else "Finalizada", BadgeVariant.NEUTRAL)
+                }
+                FlowRow(
+                    Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            Lucide.UserRound,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Text(
+                            contactName ?: "Sin contacto",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 11.5.sp,
+                        )
+                    }
                     Text(
-                        buildString {
-                            append(
-                                runCatching { PlanKind.valueOf(plan.kind).labelEs }
-                                    .getOrDefault(plan.kind)
-                            )
-                            append(" · ")
-                            append(
-                                runCatching { Frequency.valueOf(plan.frequency).labelEs }
-                                    .getOrDefault(plan.frequency)
-                            )
-                            append(" · ${fmtMinor(plan.amountMinor, display)}")
-                            row.contactName?.let { append(" · $it") }
-                        },
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 12.5.sp,
-                        modifier = Modifier.weight(1f),
+                        "$paidCount cuota${if (paidCount == 1) "" else "s"} saldada${if (paidCount == 1) "" else "s"}",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 11.5.sp,
                     )
-                    ChangeboxBadge(if (plan.active) "Activo" else "Inactivo", BadgeVariant.NEUTRAL)
+                    plan.endAt?.let { endAt ->
+                        Text(
+                            "Termina ${fmtDate(endAt)}",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 11.5.sp,
+                        )
+                    }
                 }
             }
         }
@@ -238,11 +286,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                                 val days = daysUntil(pending.dueAt.toLocalDate())
                                 ChangeboxBadge(
                                     dueLabel(pending.dueAt.toLocalDate()),
-                                    when {
-                                        days < 0 -> BadgeVariant.DANGER
-                                        days <= 1 -> BadgeVariant.WARN
-                                        else -> BadgeVariant.NEUTRAL
-                                    },
+                                    dueTone(days).toBadge(),
                                 )
                             }
                             SettleInstallmentRow(
@@ -304,7 +348,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                 }
             }
 
-            // Desactivar + eliminar
+            // Finalizar + eliminar
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
@@ -314,7 +358,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                     DeactivatePlanButton(onDeactivate = {
                         vm.deactivate { result ->
                             when (result) {
-                                is ActionResult.Success -> toast("Plan desactivado")
+                                is ActionResult.Success -> toast("Mensualidad finalizada")
                                 is ActionResult.Failure -> toast(result.error)
                             }
                         }
@@ -361,7 +405,7 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 when (inst.status) {
-                                    "PAID" -> ChangeboxBadge("Pagada", BadgeVariant.OK)
+                                    "PAID" -> ChangeboxBadge("Saldada", BadgeVariant.OK)
                                     "SKIPPED" -> ChangeboxBadge("Omitida", BadgeVariant.NEUTRAL)
                                     else -> ChangeboxBadge(
                                         dueLabel(inst.dueAt.toLocalDate()),
@@ -384,11 +428,11 @@ fun PlanDetailScreen(navController: NavHostController, planId: String) {
 private fun DeactivatePlanButton(onDeactivate: () -> Unit) {
     var confirming by remember { mutableStateOf(false) }
     if (!confirming) {
-        GhostButton("Desactivar plan", onClick = { confirming = true })
+        GhostButton("Finalizar mensualidad", onClick = { confirming = true })
     } else {
         InlineConfirm(
-            text = "¿Desactivar?",
-            confirmLabel = "Sí, desactivar",
+            text = "¿Finalizar? Las cuotas pendientes se omiten.",
+            confirmLabel = "Sí, finalizar",
             onConfirm = {
                 confirming = false
                 onDeactivate()

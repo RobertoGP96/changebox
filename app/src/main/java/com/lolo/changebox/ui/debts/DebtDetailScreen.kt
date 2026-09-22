@@ -44,8 +44,10 @@ import com.lolo.changebox.domain.DebtDirection
 import com.lolo.changebox.domain.DisplayCurrencyOf
 import com.lolo.changebox.domain.daysUntil
 import com.lolo.changebox.domain.dueLabel
+import com.lolo.changebox.domain.dueTone
 import com.lolo.changebox.domain.fmtMinor
 import com.lolo.changebox.domain.minorToInput
+import com.lolo.changebox.ui.Routes
 import com.lolo.changebox.ui.common.BadgeVariant
 import com.lolo.changebox.ui.common.ChangeboxBadge
 import com.lolo.changebox.ui.common.ChangeboxCard
@@ -147,7 +149,7 @@ fun DebtDetailScreen(navController: NavHostController, debtId: String) {
     val paid = item?.paidMinor ?: 0L
     val remaining = (debt?.totalMinor ?: 0L) - paid
     val pct = if (debt != null) {
-        minOf(100, ((paid.toDouble() / maxOf(1L, debt.totalMinor)) * 100).toInt())
+        paidPercent(paid, debt.totalMinor)
     } else {
         0
     }
@@ -233,7 +235,13 @@ fun DebtDetailScreen(navController: NavHostController, debtId: String) {
             // Cuotas pendientes
             if (isOpen && state.pendingInstallments.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionTitle("Cuotas pendientes")
+                    // Enlace a la mensualidad (vista propia) del plan activo.
+                    val planId = state.pendingInstallments.first().installment.planId
+                    SectionTitle(
+                        "Cuotas pendientes",
+                        actionLabel = "Ver mensualidad",
+                        onAction = { navController.navigate(Routes.planDetail(planId)) },
+                    )
                     state.pendingInstallments.forEach { pending ->
                         val inst = pending.installment
                         val days = daysUntil(inst.dueAt.toLocalDate())
@@ -255,11 +263,7 @@ fun DebtDetailScreen(navController: NavHostController, debtId: String) {
                                     }
                                     ChangeboxBadge(
                                         dueLabel(inst.dueAt.toLocalDate()),
-                                        when {
-                                            days < 0 -> BadgeVariant.DANGER
-                                            days <= 1 -> BadgeVariant.WARN
-                                            else -> BadgeVariant.NEUTRAL
-                                        },
+                                        dueTone(days).toBadge(),
                                     )
                                 }
                                 SettleInstallmentRow(

@@ -1,10 +1,12 @@
-﻿package com.lolo.changebox.ui.home
+package com.lolo.changebox.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,14 +30,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -50,21 +58,27 @@ import com.composables.icons.lucide.Bell
 import com.composables.icons.lucide.Calculator
 import com.composables.icons.lucide.HandCoins
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.SlidersHorizontal
 import com.composables.icons.lucide.Wallet
+import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.atEndOfDayMillis
+import com.lolo.changebox.data.guarded
 import com.lolo.changebox.data.local.dao.UpcomingInstallmentRow
 import com.lolo.changebox.data.local.entity.CurrencyEntity
 import com.lolo.changebox.data.repo.AccountWithBalance
 import com.lolo.changebox.data.repo.DashboardMetrics
+import com.lolo.changebox.data.repo.PairRatePoint
 import com.lolo.changebox.data.toLocalDate
 import com.lolo.changebox.di.AppContainer
 import com.lolo.changebox.di.appViewModel
 import com.lolo.changebox.domain.AccountType
+import com.lolo.changebox.domain.DashboardPrefs
+import com.lolo.changebox.domain.DashboardWidget
 import com.lolo.changebox.domain.DisplayCurrencyOf
-import com.lolo.changebox.domain.MinorCurrencyOf
 import com.lolo.changebox.domain.PlanKind
-import com.lolo.changebox.domain.convertMinor
+import com.lolo.changebox.domain.WidgetType
 import com.lolo.changebox.domain.daysUntil
+import com.lolo.changebox.domain.defaultDashboardPrefs
 import com.lolo.changebox.domain.deltaPct
 import com.lolo.changebox.domain.dueLabel
 import com.lolo.changebox.domain.fmtMinor
@@ -73,96 +87,178 @@ import com.lolo.changebox.ui.common.BadgeVariant
 import com.lolo.changebox.ui.common.ChangeboxBadge
 import com.lolo.changebox.ui.common.ChangeboxCard
 import com.lolo.changebox.ui.common.EmptyState
-import com.lolo.changebox.ui.common.contentWidth
 import com.lolo.changebox.ui.common.GradientBar
+import com.lolo.changebox.ui.common.HeaderIconButton
 import com.lolo.changebox.ui.common.IconChip
+import com.lolo.changebox.ui.common.LocalToast
 import com.lolo.changebox.ui.common.MonthlyBars
 import com.lolo.changebox.ui.common.ScreenHeader
 import com.lolo.changebox.ui.common.SectionTitle
+import com.lolo.changebox.ui.common.contentWidth
+import com.lolo.changebox.ui.theme.BrandSoft
 import com.lolo.changebox.ui.theme.ChangeboxColors
 import com.lolo.changebox.ui.theme.Gold
 import com.lolo.changebox.ui.theme.getAccountIcon
 import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-// Inicio: total consolidado, accesos rápidos, métricas del mes, gráfico de
-// barras, top de gastos, próximos vencimientos y cuentas — port del
-// dashboard (app)/page.tsx.
+// Inicio personalizable: chips del mes en la cabecera y secciones en el orden
+// y visibilidad de las preferencias (accesos rápidos, panel de gadgets,
+// gráfico, top de gastos, próximos vencimientos y cuentas). Port del
+// dashboard (app)/page.tsx; las secciones sin datos se omiten sin hueco.
 
 data class HomeState(
     val loaded: Boolean = false,
     val base: CurrencyEntity? = null,
+    /** Cuentas activas (no archivadas) con saldo derivado. */
     val accounts: List<AccountWithBalance> = emptyList(),
-    val consolidatedMinor: Long = 0,
-    val missingRates: Set<String> = emptySet(),
+    /** Monedas activas, base primero (selector de pares de los gadgets). */
+    val currencies: List<CurrencyEntity> = emptyList(),
     val metrics: DashboardMetrics? = null,
     val upcoming: List<UpcomingInstallmentRow> = emptyList(),
+    val prefs: DashboardPrefs = defaultDashboardPrefs(),
+    val widgetData: WidgetData = WidgetData(),
 )
 
-class HomeViewModel(container: AppContainer) : ViewModel() {
+/**
+ * Combina un flujo por clave en un mapa clave → valor. Con cero claves emite
+ * un mapa vacío (el combine de una lista vacía no emitiría nunca).
+ */
+private fun <V> combineKeyed(
+    keys: List<String>,
+    source: (String) -> Flow<V>,
+): Flow<Map<String, V>> {
+    var acc: Flow<Map<String, V>> = flowOf(emptyMap())
+    for (key in keys) {
+        acc = acc.combine(source(key)) { map, value -> map + (key to value) }
+    }
+    return acc
+}
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val state = combine(
+class HomeViewModel(private val container: AppContainer) : ViewModel() {
+
+    private data class Core(
+        val base: CurrencyEntity?,
+        val accounts: List<AccountWithBalance>,
+        val currencies: List<CurrencyEntity>,
+        val upcoming: List<UpcomingInstallmentRow>,
+        val prefs: DashboardPrefs,
+    )
+
+    private val prefsFlow: Flow<DashboardPrefs> = container.prefs.dashboardPrefsFlow
+
+    private val coreFlow: Flow<Core> = combine(
         container.db.catalogDao().baseCurrencyFlow(),
         container.accounts.accountsWithBalancesFlow(),
-        container.rates.latestRatesByCurrencyFlow(),
+        container.db.catalogDao().activeCurrenciesFlow(),
         container.plans.upcomingInstallmentsFlow(
             LocalDate.now().plusDays(7).atEndOfDayMillis()
         ),
-    ) { base, accounts, rates, upcoming ->
-        Quad(base, accounts, rates, upcoming)
-    }.flatMapLatest { (base, accounts, rates, upcoming) ->
-        val metricsFlow = if (base == null) {
-            flowOf(null)
-        } else {
-            container.metrics.dashboardMetricsFlow(base.id, base.decimalPlaces)
-        }
-        metricsFlow.map { metrics ->
-            var consolidated = 0L
-            val missing = (metrics?.missingRates ?: emptySet()).toMutableSet()
-            if (base != null) {
-                for (account in accounts) {
-                    if (account.currency.id == base.id) {
-                        consolidated += account.balanceMinor
-                    } else {
-                        val rate = rates[account.currency.id]
-                        if (rate != null) {
-                            consolidated += convertMinor(
-                                account.balanceMinor,
-                                MinorCurrencyOf(account.currency.decimalPlaces),
-                                MinorCurrencyOf(base.decimalPlaces),
-                                rate.rateScaled,
-                            )
-                        } else if (account.balanceMinor != 0L) {
-                            missing.add(account.currency.code)
-                        }
-                    }
-                }
+        prefsFlow,
+    ) { base, accounts, currencies, upcoming, prefs ->
+        Core(base, accounts, currencies, upcoming, prefs)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val metricsFlow: Flow<DashboardMetrics?> =
+        container.db.catalogDao().baseCurrencyFlow().flatMapLatest { base ->
+            if (base == null) {
+                flowOf(null)
+            } else {
+                container.metrics.dashboardMetricsFlow(base.id, base.decimalPlaces)
             }
-            HomeState(
-                loaded = true,
-                base = base,
-                accounts = accounts,
-                consolidatedMinor = consolidated,
-                missingRates = missing,
-                metrics = metrics,
-                upcoming = upcoming,
+        }
+
+    /** Datos de los gadgets: solo se consulta lo que algún gadget usa. */
+    private fun widgetDataFlow(widgets: List<DashboardWidget>): Flow<WidgetData> {
+        val incomeKeys = widgets
+            .filter { it.type == WidgetType.INCOME_CARD }
+            .map { it.accountId ?: INCOME_ALL_ACCOUNTS }
+            .distinct()
+        val movementAccounts = widgets
+            .filter { it.type == WidgetType.ACCOUNT_CARD && it.showMovements == true }
+            .mapNotNull { it.accountId }
+            .distinct()
+        val stockAccounts = widgets
+            .filter { it.type == WidgetType.ACCOUNT_CARD && it.showDenominations == true }
+            .mapNotNull { it.accountId }
+            .distinct()
+        val pairFlow: Flow<Map<String, List<PairRatePoint>>> =
+            if (widgets.any { it.type == WidgetType.RATE_PAIR }) {
+                container.rates.pairSeriesFlow()
+            } else {
+                flowOf(emptyMap())
+            }
+
+        return combine(
+            pairFlow,
+            combineKeyed(incomeKeys) { key ->
+                container.metrics.incomeCardDataFlow(
+                    if (key == INCOME_ALL_ACCOUNTS) null else key
+                )
+            },
+            combineKeyed(movementAccounts) { accountId ->
+                container.ledger.accountRowsFlow(accountId, 3)
+            },
+            combineKeyed(stockAccounts) { accountId ->
+                container.accounts.denominationStockFlow(accountId)
+            },
+        ) { pairs, incomeCards, rows, stocks ->
+            WidgetData(
+                pairSeries = pairs,
+                incomeCards = incomeCards,
+                accountRows = rows,
+                stocks = stocks,
             )
         }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val widgetsFlow: Flow<WidgetData> = prefsFlow
+        .map { it.widgets }
+        .distinctUntilChanged()
+        .flatMapLatest { widgetDataFlow(it) }
+
+    val state: StateFlow<HomeState> = combine(coreFlow, metricsFlow, widgetsFlow) { core, metrics, widgetData ->
+        HomeState(
+            loaded = true,
+            base = core.base,
+            accounts = core.accounts,
+            currencies = core.currencies,
+            metrics = metrics,
+            upcoming = core.upcoming,
+            prefs = core.prefs,
+            widgetData = widgetData,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
-    private data class Quad(
-        val base: CurrencyEntity?,
-        val accounts: List<AccountWithBalance>,
-        val rates: Map<String, com.lolo.changebox.data.repo.PairRatePoint>,
-        val upcoming: List<UpcomingInstallmentRow>,
-    )
+    /**
+     * Guarda las preferencias (saveDashboardPrefs): las cuentas y monedas se
+     * validan contra las que existen (incluidas archivadas/inactivas).
+     */
+    suspend fun saveDashboardPrefs(prefs: DashboardPrefs): ActionResult<Unit> =
+        guarded("No se pudieron guardar las preferencias") {
+            val accountIds = container.accounts
+                .accountsWithBalancesFlow(includeArchived = true)
+                .first()
+                .map { it.id }
+                .toSet()
+            val currencyIds = container.db.catalogDao().currenciesFlow()
+                .first()
+                .map { it.id }
+                .toSet()
+            container.prefs.saveDashboardPrefs(prefs, accountIds, currencyIds)
+        }
 }
 
 private data class QuickAction(val route: String, val icon: ImageVector, val label: String)
@@ -171,14 +267,8 @@ private data class QuickAction(val route: String, val icon: ImageVector, val lab
 fun HomeScreen(navController: NavHostController) {
     val vm = appViewModel { HomeViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
-
-    val quickActions = listOf(
-        QuickAction(Routes.register("gasto"), Lucide.ArrowUpRight, "Gasto"),
-        QuickAction(Routes.register("ingreso"), Lucide.ArrowDownLeft, "Ingreso"),
-        QuickAction(Routes.register("transferencia"), Lucide.ArrowRightLeft, "Transferir"),
-        QuickAction(Routes.COUNTING, Lucide.Banknote, "Arqueo"),
-        QuickAction(Routes.CALCULATOR, Lucide.Calculator, "Calcular"),
-    )
+    val toast = LocalToast.current
+    var customizerOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -188,33 +278,16 @@ fun HomeScreen(navController: NavHostController) {
     ) {
         ScreenHeader(
             title = "Changebox",
-            actions = { NotificationsBell(state.upcoming, navController) },
-        ) {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "TOTAL CONSOLIDADO",
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.8.sp,
-            )
-            Text(
-                state.base?.let { fmtMinor(state.consolidatedMinor, it.toDisplayLocal()) } ?: "—",
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.5).sp,
-            )
-            if (state.missingRates.isNotEmpty()) {
-                Text(
-                    "Sin tasa para ${state.missingRates.joinToString(", ")} · registrar tasa",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 11.5.sp,
-                    modifier = Modifier
-                        .padding(top = 4.dp)
-                        .clickable { navController.navigate(Routes.RATES) },
+            actions = {
+                HeaderIconButton(
+                    icon = Lucide.SlidersHorizontal,
+                    contentDescription = "Personalizar Inicio",
+                    onClick = { customizerOpen = true },
                 )
-            }
+                NotificationsBell(state.upcoming, navController)
+            },
+        ) {
+            HeaderSummary(state) { navController.navigate(Routes.RATES) }
         }
 
         Column(
@@ -223,251 +296,398 @@ fun HomeScreen(navController: NavHostController) {
                 .padding(horizontal = 20.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            // Accesos rápidos
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                quickActions.forEach { action ->
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable { navController.navigate(action.route) }
-                            .padding(vertical = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        IconChip(action.icon, size = 36, corner = 12)
+            if (state.loaded) {
+                // Orden y visibilidad de las preferencias; una sección sin
+                // datos no emite nada, así que no deja hueco.
+                state.prefs.sections.forEach { section ->
+                    if (section.visible) {
+                        HomeSection(section.key, state, navController)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    if (customizerOpen) {
+        DashboardCustomizerSheet(
+            prefs = state.prefs,
+            accounts = state.accounts,
+            currencies = state.currencies,
+            onDismiss = { customizerOpen = false },
+            onSave = { prefs -> vm.saveDashboardPrefs(prefs) },
+            onSaved = {
+                customizerOpen = false
+                toast("Inicio actualizado")
+            },
+        )
+    }
+}
+
+/** Aviso de monedas sin tasa + chips del mes (Ingresos, Gastos, Neto…). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HeaderSummary(state: HomeState, onOpenRates: () -> Unit) {
+    val base = state.base
+    val metrics = state.metrics
+    // Monedas sin tasa: avisa si sus movimientos quedan fuera de las métricas.
+    val missingRates = metrics?.missingRates ?: emptySet()
+
+    if (missingRates.isNotEmpty()) {
+        Text(
+            buildAnnotatedString {
+                append("Sin tasa para ${missingRates.joinToString(", ")} · ")
+                withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                    append("registrar tasa")
+                }
+            },
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 11.5.sp,
+            modifier = Modifier
+                .padding(top = 16.dp)
+                .clickable(onClick = onOpenRates),
+        )
+    }
+
+    val current = metrics?.series?.lastOrNull()
+    if (base == null || metrics == null || current == null) return
+    val previous = metrics.series.getOrNull(metrics.series.size - 2)
+    val incomeDelta = previous?.let { deltaPct(current.incomeMinor, it.incomeMinor) }
+    val expenseDelta = previous?.let { deltaPct(current.expenseMinor, it.expenseMinor) }
+    val display = base.toDisplayLocal()
+
+    val chips = buildList {
+        add(HeaderChip("Ingresos mes", fmtMinor(current.incomeMinor, display), incomeDelta,
+            incomeDelta != null && incomeDelta >= 0))
+        add(HeaderChip("Gastos mes", fmtMinor(current.expenseMinor, display), expenseDelta,
+            expenseDelta != null && expenseDelta <= 0))
+        add(HeaderChip("Neto mes",
+            fmtMinor(current.incomeMinor - current.expenseMinor, display), null, true))
+        if (metrics.receivableMinor > 0) {
+            add(HeaderChip("Por cobrar", fmtMinor(metrics.receivableMinor, display), null, true))
+        }
+        if (metrics.payableMinor > 0) {
+            add(HeaderChip("Por pagar", fmtMinor(metrics.payableMinor, display), null, true))
+        }
+    }
+
+    FlowRow(
+        modifier = Modifier.padding(top = if (missingRates.isEmpty()) 14.dp else 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        chips.forEach { chip ->
+            Column(
+                Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.10f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    chip.label.uppercase(),
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.5.sp,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        chip.value,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                    if (chip.delta != null) {
                         Text(
-                            action.label,
+                            "${if (chip.delta >= 0) "+" else ""}${chip.delta}%",
+                            color = if (chip.deltaGood) BrandSoft else Color(0xFFF2A9B4),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                 }
             }
+        }
+    }
+}
 
-            // Métricas del mes
-            val base = state.base
-            val metrics = state.metrics
-            if (base != null && metrics != null && metrics.series.isNotEmpty()) {
-                val current = metrics.series.last()
-                val previous = metrics.series.getOrNull(metrics.series.size - 2)
-                val incomeDelta = previous?.let { deltaPct(current.incomeMinor, it.incomeMinor) }
-                val expenseDelta = previous?.let { deltaPct(current.expenseMinor, it.expenseMinor) }
-                val display = base.toDisplayLocal()
-                val ext = ChangeboxColors.extended
+private data class HeaderChip(
+    val label: String,
+    val value: String,
+    val delta: Int?,
+    val deltaGood: Boolean,
+)
 
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatCard(
-                            label = "INGRESOS DEL MES",
-                            value = fmtMinor(current.incomeMinor, display),
-                            valueColor = ext.ok,
-                            delta = incomeDelta,
-                            deltaGoodWhenPositive = true,
-                            deltaVs = previous?.label,
-                            modifier = Modifier.weight(1f),
-                        )
-                        StatCard(
-                            label = "GASTOS DEL MES",
-                            value = fmtMinor(current.expenseMinor, display),
-                            valueColor = MaterialTheme.colorScheme.error,
-                            delta = expenseDelta,
-                            deltaGoodWhenPositive = false,
-                            deltaVs = previous?.label,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatCard(
-                            label = "POR COBRAR",
-                            value = fmtMinor(metrics.receivableMinor, display),
-                            valueColor = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { navController.navigate(Routes.debts()) },
-                        )
-                        StatCard(
-                            label = "POR PAGAR",
-                            value = fmtMinor(metrics.payableMinor, display),
-                            valueColor = ext.warn,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { navController.navigate(Routes.debts("pagar")) },
-                        )
-                    }
+/** Una sección personalizable; no emite nada si no tiene datos. */
+@Composable
+private fun HomeSection(key: String, state: HomeState, navController: NavHostController) {
+    when (key) {
+        "quickActions" -> QuickActionsSection(navController)
+        "widgetPanel" -> WidgetPanelSection(state, navController)
+        "monthlyChart" -> MonthlyChartSection(state)
+        "topCategories" -> TopCategoriesSection(state, navController)
+        "upcomingInstallments" -> UpcomingSection(state.upcoming, navController)
+        "accounts" -> AccountsSection(state, navController)
+        else -> Unit
+    }
+}
+
+@Composable
+private fun QuickActionsSection(navController: NavHostController) {
+    val quickActions = listOf(
+        QuickAction(Routes.register("gasto"), Lucide.ArrowUpRight, "Gasto"),
+        QuickAction(Routes.register("ingreso"), Lucide.ArrowDownLeft, "Ingreso"),
+        QuickAction(Routes.register("transferencia"), Lucide.ArrowRightLeft, "Transferir"),
+        QuickAction(Routes.COUNTING, Lucide.Banknote, "Arqueo"),
+        QuickAction(Routes.CALCULATOR, Lucide.Calculator, "Calcular"),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        quickActions.forEach { action ->
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable { navController.navigate(action.route) }
+                    .padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                IconChip(action.icon, size = 36, corner = 12)
+                Text(
+                    action.label,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WidgetPanelSection(state: HomeState, navController: NavHostController) {
+    val widgets = state.prefs.widgets
+    if (widgets.isEmpty()) return
+    val data = state.widgetData
+    val accountById = state.accounts.associateBy { it.id }
+    val currencyById = state.currencies.associateBy { it.id }
+
+    BentoPanel(widgets) { widget, half, modifier ->
+        when (widget.type) {
+            WidgetType.ACCOUNT_CARD -> {
+                val accountId = widget.accountId
+                AccountCardWidget(
+                    widget = widget,
+                    account = accountId?.let { accountById[it] },
+                    rows = accountId?.let { data.accountRows[it] } ?: emptyList(),
+                    stock = accountId?.let { data.stocks[it] },
+                    half = half,
+                    modifier = modifier,
+                    onOpenAccount = { navController.navigate(Routes.accountDetail(it)) },
+                    onRegisterHere = { navController.navigate(Routes.register(cuenta = it)) },
+                    onOpenMovement = { navController.navigate(Routes.movementDetail(it)) },
+                    onUpdateCount = { navController.navigate(Routes.cashCount(it)) },
+                )
+            }
+
+            WidgetType.CURRENCY_TOTALS -> CurrencyTotalsWidget(state.accounts, half, modifier)
+
+            WidgetType.INCOME_CARD -> {
+                val key = widget.accountId ?: INCOME_ALL_ACCOUNTS
+                // Recién añadido y aún sin datos cargados: hueco vacío en vez
+                // de un aviso engañoso durante un instante.
+                if (!data.incomeCards.containsKey(key)) {
+                    Box(modifier)
+                } else {
+                    IncomeCardWidget(
+                        widget = widget,
+                        data = data.incomeCards[key],
+                        half = half,
+                        modifier = modifier,
+                        onOpenCurrencies = { navController.navigate(Routes.CURRENCIES) },
+                    )
                 }
+            }
 
-                // Ingresos vs gastos · últimos 6 meses
-                ChangeboxCard {
-                    Column(Modifier.padding(16.dp)) {
+            WidgetType.RATE_PAIR -> {
+                val from = widget.fromCurrencyId?.let { currencyById[it] }
+                val to = widget.toCurrencyId?.let { currencyById[it] }
+                if (from == null || to == null) {
+                    // Moneda desactivada o borrada: la celda queda vacía (web).
+                    Box(modifier)
+                } else {
+                    RatePairWidget(
+                        fromCode = from.code,
+                        toCode = to.code,
+                        values = pairValues(data.pairSeries, from.id, to.id),
+                        half = half,
+                        modifier = modifier,
+                        onOpen = { navController.navigate(Routes.ratePair(from.code, to.code)) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthlyChartSection(state: HomeState) {
+    val base = state.base ?: return
+    val metrics = state.metrics ?: return
+    val display = base.toDisplayLocal()
+    ChangeboxCard {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "Ingresos vs gastos · últimos 6 meses",
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(12.dp))
+            val hasData = metrics.series.any { it.incomeMinor > 0 || it.expenseMinor > 0 }
+            if (hasData) {
+                MonthlyBars(metrics.series, display)
+            } else {
+                Text(
+                    "Registra movimientos para ver la evolución mensual.",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TopCategoriesSection(state: HomeState, navController: NavHostController) {
+    val base = state.base ?: return
+    val metrics = state.metrics ?: return
+    if (metrics.topCategories.isEmpty()) return
+    val display = base.toDisplayLocal()
+    val maxCategory = metrics.topCategories.first().totalMinor
+    ChangeboxCard {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Top gastos del mes",
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "Ver todo",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.clickable {
+                        navController.navigate(Routes.MOVEMENTS)
+                    },
+                )
+            }
+            metrics.topCategories.forEach { category ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row {
                         Text(
-                            "Ingresos vs gastos · últimos 6 meses",
-                            fontSize = 13.5.sp,
+                            category.name,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            fmtMinor(category.totalMinor, display),
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(12.dp))
-                        val hasData = metrics.series.any { it.incomeMinor > 0 || it.expenseMinor > 0 }
-                        if (hasData) {
-                            MonthlyBars(metrics.series, display)
-                        } else {
-                            Text(
-                                "Registra movimientos para ver la evolución mensual.",
-                                fontSize = 12.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 24.dp),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            )
-                        }
                     }
-                }
-
-                // Top gastos del mes
-                if (metrics.topCategories.isNotEmpty()) {
-                    val maxCategory = metrics.topCategories.first().totalMinor
-                    ChangeboxCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "Top gastos del mes",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    "Ver todo",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.clickable {
-                                        navController.navigate(Routes.MOVEMENTS)
-                                    },
-                                )
-                            }
-                            metrics.topCategories.forEach { category ->
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row {
-                                        Text(
-                                            category.name,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text(
-                                            fmtMinor(category.totalMinor, display),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                        )
-                                    }
-                                    GradientBar(
-                                        category.totalMinor.toFloat() / maxOf(1L, maxCategory)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Próximos vencimientos
-            if (state.upcoming.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionTitle(
-                        "Próximos vencimientos",
-                        actionLabel = "Ver deudas",
-                        onAction = { navController.navigate(Routes.debts()) },
+                    GradientBar(
+                        category.totalMinor.toFloat() / maxOf(1L, maxCategory)
                     )
-                    state.upcoming.forEach { row ->
-                        UpcomingRow(row) {
-                            navController.navigate(
-                                if (row.debtId != null) Routes.debtDetail(row.debtId)
-                                else Routes.planDetail(row.planId)
-                            )
-                        }
-                    }
                 }
             }
+        }
+    }
+}
 
-            // Cuentas
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionTitle(
-                    "Cuentas",
-                    actionLabel = "+ Nueva cuenta",
-                    onAction = { navController.navigate(Routes.NEW_ACCOUNT) },
+/** Próximos vencimientos (≤ 7 días), enlazados a mensualidades como la web. */
+@Composable
+private fun UpcomingSection(
+    upcoming: List<UpcomingInstallmentRow>,
+    navController: NavHostController,
+) {
+    if (upcoming.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionTitle(
+            "Próximos vencimientos",
+            actionLabel = "Ver mensualidades",
+            onAction = { navController.navigate(Routes.monthlyPlans()) },
+        )
+        upcoming.forEach { row ->
+            UpcomingRow(row) {
+                navController.navigate(
+                    if (row.debtId != null) Routes.debtDetail(row.debtId)
+                    else Routes.planDetail(row.planId)
                 )
-                if (state.loaded && state.accounts.isEmpty()) {
-                    EmptyState(
-                        icon = Lucide.Wallet,
-                        title = "Sin cuentas todavía",
-                        description = "Crea tu primera cuenta o caja para empezar a registrar movimientos.",
-                        ctaLabel = "Crear cuenta",
-                        onCta = { navController.navigate(Routes.NEW_ACCOUNT) },
-                    )
-                } else {
-                    state.accounts.forEach { account ->
-                        AccountCard(account) {
-                            navController.navigate(Routes.accountDetail(account.id))
-                        }
-                    }
-                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountsSection(state: HomeState, navController: NavHostController) {
+    // Cuentas que lista la sección (los gadgets no se filtran por esto).
+    val ids = state.prefs.accountIds
+    val visibleAccounts = if (ids == null) state.accounts
+    else state.accounts.filter { it.id in ids }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionTitle(
+            "Cuentas",
+            actionLabel = "+ Nueva cuenta",
+            onAction = { navController.navigate(Routes.NEW_ACCOUNT) },
+        )
+        when {
+            state.accounts.isEmpty() -> EmptyState(
+                icon = Lucide.Wallet,
+                title = "Sin cuentas todavía",
+                description = "Crea tu primera cuenta o caja para empezar a registrar movimientos.",
+                ctaLabel = "Crear cuenta",
+                onCta = { navController.navigate(Routes.NEW_ACCOUNT) },
+            )
+
+            visibleAccounts.isEmpty() -> ChangeboxCard(corner = 16) {
+                Text(
+                    "Todas las cuentas están ocultas. Elige cuáles mostrar en «Personalizar Inicio».",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 20.dp),
+                )
             }
 
-            Spacer(Modifier.height(16.dp))
+            else -> visibleAccounts.forEach { account ->
+                AccountCard(account) {
+                    navController.navigate(Routes.accountDetail(account.id))
+                }
+            }
         }
     }
 }
 
 fun CurrencyEntity.toDisplayLocal() = DisplayCurrencyOf(code, decimalPlaces)
-
-@Composable
-private fun StatCard(
-    label: String,
-    value: String,
-    valueColor: Color,
-    modifier: Modifier = Modifier,
-    delta: Int? = null,
-    deltaGoodWhenPositive: Boolean = true,
-    deltaVs: String? = null,
-) {
-    val ext = ChangeboxColors.extended
-    ChangeboxCard(modifier = modifier, corner = 16) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.6.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                value,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = valueColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (delta != null && deltaVs != null) {
-                val good = if (deltaGoodWhenPositive) delta >= 0 else delta <= 0
-                Text(
-                    "${if (delta >= 0) "+" else ""}$delta% vs $deltaVs",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (good) ext.ok else MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
 
 @Composable
 fun AccountCard(account: AccountWithBalance, onClick: () -> Unit) {
@@ -716,5 +936,3 @@ private fun NotificationsBell(
         }
     }
 }
-
-

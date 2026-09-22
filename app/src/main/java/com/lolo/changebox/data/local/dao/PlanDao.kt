@@ -28,6 +28,20 @@ data class PlanDetailRow(
     val debtContactName: String?,
 )
 
+// Fila de la vista Mensualidades: TODOS los planes (standalone y ligados a
+// deuda) con el contacto propio o el de la deuda, las cuotas saldadas y la
+// próxima cuota pendiente (id, vencimiento e importe) para saldarla en línea.
+data class PlanListRow(
+    @Embedded val plan: PaymentPlanEntity,
+    val currencyCode: String,
+    val currencyDecimals: Int,
+    val contactName: String?,
+    val paidCount: Int,
+    val nextPendingId: String?,
+    val nextPendingDueAt: Long?,
+    val nextPendingAmountMinor: Long?,
+)
+
 data class PendingInstallmentRow(
     @Embedded val installment: InstallmentEntity,
     val planKind: String,
@@ -83,6 +97,34 @@ interface PlanDao {
         """
     )
     fun standalonePlansFlow(): Flow<List<PlanWithMeta>>
+
+    // Todos los planes (vista Mensualidades): activos y finalizados, con o sin
+    // deuda. Orden base = createdAt desc, como la web; la UI reordena por
+    // urgencia los activos.
+    @Query(
+        """
+        SELECT p.*, cur.code AS currencyCode, cur.decimalPlaces AS currencyDecimals,
+            COALESCE(ct.name, dct.name) AS contactName,
+            (SELECT COUNT(*) FROM installments i
+                WHERE i.planId = p.id AND i.status = 'PAID') AS paidCount,
+            (SELECT i.id FROM installments i
+                WHERE i.planId = p.id AND i.status = 'PENDING'
+                ORDER BY i.dueAt ASC LIMIT 1) AS nextPendingId,
+            (SELECT i.dueAt FROM installments i
+                WHERE i.planId = p.id AND i.status = 'PENDING'
+                ORDER BY i.dueAt ASC LIMIT 1) AS nextPendingDueAt,
+            (SELECT i.amountMinor FROM installments i
+                WHERE i.planId = p.id AND i.status = 'PENDING'
+                ORDER BY i.dueAt ASC LIMIT 1) AS nextPendingAmountMinor
+        FROM payment_plans p
+        JOIN currencies cur ON cur.id = p.currencyId
+        LEFT JOIN contacts ct ON ct.id = p.contactId
+        LEFT JOIN debts d ON d.id = p.debtId
+        LEFT JOIN contacts dct ON dct.id = d.contactId
+        ORDER BY p.createdAt DESC
+        """
+    )
+    fun allPlansFlow(): Flow<List<PlanListRow>>
 
     @Insert
     suspend fun insertPlan(plan: PaymentPlanEntity)

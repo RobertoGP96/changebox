@@ -50,7 +50,9 @@ import com.lolo.changebox.data.repo.toTxRow
 import com.lolo.changebox.di.AppContainer
 import com.lolo.changebox.di.appViewModel
 import com.lolo.changebox.domain.AccountType
+import com.lolo.changebox.domain.ActivityDelta
 import com.lolo.changebox.domain.DenominationKind
+import com.lolo.changebox.domain.activityDeltas
 import com.lolo.changebox.domain.DisplayCurrencyOf
 import com.lolo.changebox.domain.fmtMinor
 import com.lolo.changebox.domain.isCashLike
@@ -91,7 +93,12 @@ data class AccountDetailState(
     val groups: List<AccountGroupEntity> = emptyList(),
     val hasUsage: Boolean = false,
     val stock: AccountDenominationStock? = null,
+    /** Deltas del libro mayor COMPLETO de la cuenta para el gráfico. */
+    val activity: List<ActivityDelta> = emptyList(),
 )
+
+/** Libro mayor completo reducido a lo que usa el detalle. */
+private data class AccountUsage(val activity: List<ActivityDelta>, val hasUsage: Boolean)
 
 class AccountDetailViewModel(
     private val container: AppContainer,
@@ -103,7 +110,19 @@ class AccountDetailViewModel(
         if (account == null) {
             flowOf(AccountDetailState(loaded = true))
         } else {
-            combine(
+            // Libro mayor completo (ambos lados) + arqueos: alimenta el gráfico
+            // de actividad y decide `hasUsage` (como `ledger.length +
+            // countCount > 0` en la web), no solo los 30 últimos movimientos.
+            val usage = combine(
+                container.accounts.accountLedgerFlow(accountId),
+                container.accounts.cashCountCountFlow(accountId),
+            ) { ledger, countCount ->
+                AccountUsage(
+                    activity = activityDeltas(accountId, ledger),
+                    hasUsage = ledger.size + countCount > 0,
+                )
+            }
+            val detail = combine(
                 container.db.catalogDao().currencyFlow(account.currencyId),
                 container.accounts.accountBalanceFlow(accountId),
                 container.ledger.accountRowsFlow(accountId, 30),
@@ -119,11 +138,15 @@ class AccountDetailViewModel(
                     account = account,
                     currency = currency,
                     balanceMinor = balance,
-                    rows = rows,
+                    // Últimos 30 en orden cronológico (el más reciente al
+                    // final), como el `.reverse()` de la web.
+                    rows = rows.reversed(),
                     groups = groups,
-                    hasUsage = rows.isNotEmpty(),
                     stock = stock,
                 )
+            }
+            combine(detail, usage) { state, u ->
+                state.copy(activity = u.activity, hasUsage = u.hasUsage)
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountDetailState())
@@ -247,6 +270,11 @@ fun AccountDetailScreen(navController: NavHostController, accountId: String) {
                         )
                     }
                 }
+            }
+
+            // Actividad de la cuenta (libro mayor completo, ambos lados)
+            if (state.activity.isNotEmpty()) {
+                AccountActivityChart(deltas = state.activity, currency = display)
             }
 
             // Icono de la cuenta

@@ -5,6 +5,7 @@ import com.lolo.changebox.data.ActionError
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.atNoonMillis
 import com.lolo.changebox.data.fail
+import com.lolo.changebox.data.guarded
 import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.entity.InstallmentEntity
 import com.lolo.changebox.data.local.entity.PaymentPlanEntity
@@ -45,23 +46,24 @@ class PlanRepository(private val db: ChangeboxDatabase) {
 
     fun standalonePlansFlow() = planDao.standalonePlansFlow()
     fun planDetailFlow(id: String) = planDao.planDetailFlow(id)
+    fun allPlansFlow() = planDao.allPlansFlow()
     fun installmentsFlow(planId: String, limit: Int = 24) =
         planDao.installmentsFlow(planId, limit)
     fun upcomingInstallmentsFlow(limitMillis: Long) =
         planDao.upcomingInstallmentsFlow(limitMillis)
 
-    suspend fun createPlan(data: CreatePlanInput): ActionResult<String> {
-        if (data.description.isBlank()) return fail("Indica la descripción")
+    suspend fun createPlan(data: CreatePlanInput): ActionResult<String> = guarded("No se pudo crear el plan") {
+        if (data.description.isBlank()) return@guarded fail("Indica la descripción")
 
         val currency = catalogDao.currencyById(data.currencyId)
-        if (currency == null || !currency.active) return fail("Moneda no válida")
+        if (currency == null || !currency.active) return@guarded fail("Moneda no válida")
 
         var accountId: String? = null
         if (data.accountId != null) {
             val account = accountDao.accountById(data.accountId)
-            if (account == null || account.archived) return fail("Cuenta no válida")
+            if (account == null || account.archived) return@guarded fail("Cuenta no válida")
             if (account.currencyId != currency.id) {
-                return fail("La cuenta debe estar en ${currency.code} (la moneda del plan)")
+                return@guarded fail("La cuenta debe estar en ${currency.code} (la moneda del plan)")
             }
             accountId = account.id
         }
@@ -69,11 +71,11 @@ class PlanRepository(private val db: ChangeboxDatabase) {
         val amountMinor = try {
             parseAmountToMinor(data.amount, currency.toMinor())
         } catch (e: MoneyException) {
-            return fail(e.message ?: "Monto inválido")
+            return@guarded fail(e.message ?: "Monto inválido")
         }
-        if (amountMinor <= 0) return fail("La cuota debe ser mayor que cero")
+        if (amountMinor <= 0) return@guarded fail("La cuota debe ser mayor que cero")
         if (data.endAt != null && data.endAt.isBefore(data.firstDueAt)) {
-            return fail("El fin no puede ser antes del inicio")
+            return@guarded fail("El fin no puede ser antes del inicio")
         }
 
         val firstDueMillis = data.firstDueAt.atNoonMillis()
@@ -100,23 +102,23 @@ class PlanRepository(private val db: ChangeboxDatabase) {
                 )
             )
         }
-        return ok(plan.id)
+        return@guarded ok(plan.id)
     }
 
-    suspend fun setPlanAccount(planId: String, accountId: String?): ActionResult<String> {
-        val plan = planDao.planById(planId) ?: return fail("Plan no encontrado")
-        val currency = catalogDao.currencyById(plan.currencyId) ?: return fail("Moneda no válida")
+    suspend fun setPlanAccount(planId: String, accountId: String?): ActionResult<String> = guarded("No se pudo actualizar la cuenta") {
+        val plan = planDao.planById(planId) ?: return@guarded fail("Plan no encontrado")
+        val currency = catalogDao.currencyById(plan.currencyId) ?: return@guarded fail("Moneda no válida")
 
         if (accountId != null) {
             val account = accountDao.accountById(accountId)
-            if (account == null || account.archived) return fail("Cuenta no válida")
+            if (account == null || account.archived) return@guarded fail("Cuenta no válida")
             if (account.currencyId != plan.currencyId) {
-                return fail("La cuenta debe estar en ${currency.code} (la moneda del plan)")
+                return@guarded fail("La cuenta debe estar en ${currency.code} (la moneda del plan)")
             }
         }
 
         planDao.setPlanAccount(plan.id, accountId)
-        return ok(plan.id)
+        return@guarded ok(plan.id)
     }
 
     /**
@@ -167,18 +169,18 @@ class PlanRepository(private val db: ChangeboxDatabase) {
         accountId: String,
         amount: String? = null,
         note: String? = null,
-    ): ActionResult<SettleOutcome> {
+    ): ActionResult<SettleOutcome> = guarded("No se pudo registrar el pago de la cuota") {
         val installment = planDao.installmentById(installmentId)
         if (installment == null || installment.status != "PENDING") {
-            return fail("La cuota no está pendiente")
+            return@guarded fail("La cuota no está pendiente")
         }
-        val plan = planDao.planById(installment.planId) ?: return fail("Plan no encontrado")
-        val currency = catalogDao.currencyById(plan.currencyId) ?: return fail("Moneda no válida")
+        val plan = planDao.planById(installment.planId) ?: return@guarded fail("Plan no encontrado")
+        val currency = catalogDao.currencyById(plan.currencyId) ?: return@guarded fail("Moneda no válida")
 
         val account = accountDao.accountById(accountId)
-        if (account == null || account.archived) return fail("Cuenta no válida")
+        if (account == null || account.archived) return@guarded fail("Cuenta no válida")
         if (account.currencyId != plan.currencyId) {
-            return fail("La cuenta debe estar en ${currency.code}")
+            return@guarded fail("La cuenta debe estar en ${currency.code}")
         }
 
         var amountMinor = installment.amountMinor
@@ -186,12 +188,12 @@ class PlanRepository(private val db: ChangeboxDatabase) {
             amountMinor = try {
                 parseAmountToMinor(amount, currency.toMinor())
             } catch (e: MoneyException) {
-                return fail(e.message ?: "Monto inválido")
+                return@guarded fail(e.message ?: "Monto inválido")
             }
         }
-        if (amountMinor <= 0) return fail("El monto debe ser mayor que cero")
+        if (amountMinor <= 0) return@guarded fail("El monto debe ser mayor que cero")
 
-        return try {
+        return@guarded try {
             db.withTransaction {
                 // Releído dentro de la transacción: evita sobrepagos por doble envío.
                 var debtSettled = false
@@ -248,37 +250,37 @@ class PlanRepository(private val db: ChangeboxDatabase) {
 
     data class SkipOutcome(val id: String, val planId: String, val debtId: String?)
 
-    suspend fun skipInstallment(installmentId: String): ActionResult<SkipOutcome> {
+    suspend fun skipInstallment(installmentId: String): ActionResult<SkipOutcome> = guarded("No se pudo omitir la cuota") {
         val installment = planDao.installmentById(installmentId)
         if (installment == null || installment.status != "PENDING") {
-            return fail("La cuota no está pendiente")
+            return@guarded fail("La cuota no está pendiente")
         }
-        val plan = planDao.planById(installment.planId) ?: return fail("Plan no encontrado")
+        val plan = planDao.planById(installment.planId) ?: return@guarded fail("Plan no encontrado")
 
         db.withTransaction {
             planDao.updateInstallment(installment.copy(status = "SKIPPED"))
             advancePlan(plan, installment.dueAt, false)
         }
-        return ok(SkipOutcome(installment.id, plan.id, plan.debtId))
+        return@guarded ok(SkipOutcome(installment.id, plan.id, plan.debtId))
     }
 
-    suspend fun deactivatePlan(planId: String): ActionResult<String> {
-        val plan = planDao.planById(planId) ?: return fail("Plan no encontrado")
+    suspend fun deactivatePlan(planId: String): ActionResult<String> = guarded("No se pudo desactivar el plan") {
+        val plan = planDao.planById(planId) ?: return@guarded fail("Plan no encontrado")
         db.withTransaction {
             planDao.deactivatePlan(plan.id)
             planDao.skipPendingOfPlan(plan.id)
         }
-        return ok(plan.id)
+        return@guarded ok(plan.id)
     }
 
     /**
      * Eliminar un plan borra también todas sus cuotas (Cascade). Los
      * movimientos de cuotas ya saldadas se CONSERVAN.
      */
-    suspend fun deletePlan(planId: String): ActionResult<String?> {
-        val plan = planDao.planById(planId) ?: return fail("Plan no encontrado")
+    suspend fun deletePlan(planId: String): ActionResult<String?> = guarded("No se pudo eliminar el plan") {
+        val plan = planDao.planById(planId) ?: return@guarded fail("Plan no encontrado")
         planDao.deletePlan(plan.id)
-        return ok(plan.debtId)
+        return@guarded ok(plan.debtId)
     }
 }
 

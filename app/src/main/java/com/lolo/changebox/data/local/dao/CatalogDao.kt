@@ -74,6 +74,16 @@ interface CatalogDao {
     )
     fun currenciesWithCountsFlow(): Flow<List<CurrencyWithCounts>>
 
+    /**
+     * Cuentas de la moneda cuyo tipo está en la lista (los tipos "de efectivo
+     * o caja" llegan desde CASH_LIKE_TYPES): pasar a DIGITAL las prohíbe.
+     */
+    @Query("SELECT COUNT(*) FROM accounts WHERE currencyId = :currencyId AND type IN (:types)")
+    suspend fun accountCountByTypes(currencyId: String, types: List<String>): Int
+
+    @Query("SELECT COUNT(*) FROM denominations WHERE currencyId = :currencyId")
+    suspend fun denominationCount(currencyId: String): Int
+
     @Insert
     suspend fun insertCurrency(currency: CurrencyEntity)
 

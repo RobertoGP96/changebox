@@ -3,14 +3,19 @@
 import androidx.room.withTransaction
 import com.lolo.changebox.data.ActionResult
 import com.lolo.changebox.data.fail
+import com.lolo.changebox.data.guarded
 import com.lolo.changebox.data.local.ChangeboxDatabase
 import com.lolo.changebox.data.local.entity.AccountEntity
 import com.lolo.changebox.data.local.entity.TransactionEntity
 import com.lolo.changebox.data.ok
+import com.lolo.changebox.domain.AccountLedgerEntry
+import com.lolo.changebox.domain.AccountType
 import com.lolo.changebox.domain.IncomingTransferGroup
 import com.lolo.changebox.domain.MoneyException
 import com.lolo.changebox.domain.OwnKindGroup
 import com.lolo.changebox.domain.balancesFromGroups
+import com.lolo.changebox.domain.isCashLike
+import com.lolo.changebox.domain.isDigitalCurrencyKind
 import com.lolo.changebox.domain.movementLineSign
 import com.lolo.changebox.domain.parseAmountToMinor
 import com.lolo.changebox.ui.theme.ACCOUNT_ICON_NAMES
@@ -110,6 +115,30 @@ class AccountRepository(private val db: ChangeboxDatabase) {
 
     fun accountFlow(id: String): Flow<AccountEntity?> = accountDao.accountFlow(id)
 
+    /** Nº de cuentas archivadas (enlace «Archivadas (N)» del listado). */
+    fun archivedCountFlow(): Flow<Int> = accountDao.archivedCountFlow()
+
+    /**
+     * Libro mayor COMPLETO de la cuenta (ambos lados) en orden cronológico
+     * ascendente, con los campos mínimos para `activityDeltas`.
+     */
+    fun accountLedgerFlow(accountId: String): Flow<List<AccountLedgerEntry>> =
+        accountDao.accountLedgerFlow(accountId).map { rows ->
+            rows.map {
+                AccountLedgerEntry(
+                    accountId = it.accountId,
+                    counterAccountId = it.counterAccountId,
+                    kind = it.kind,
+                    amountMinor = it.amountMinor,
+                    counterAmountMinor = it.counterAmountMinor,
+                    occurredAtMillis = it.occurredAt,
+                )
+            }
+        }
+
+    /** Nº de arqueos de la cuenta (junto al libro mayor decide `hasUsage`). */
+    fun cashCountCountFlow(accountId: String): Flow<Int> = accountDao.cashCountCountFlow(accountId)
+
     fun activeAccountsFlow(): Flow<List<AccountEntity>> = accountDao.activeAccountsFlow()
 
     fun activeAccountsInCurrencyFlow(currencyId: String): Flow<List<AccountEntity>> =
@@ -197,21 +226,26 @@ class AccountRepository(private val db: ChangeboxDatabase) {
         initialAmount: String?,
         groupId: String?,
         icon: String?,
-    ): ActionResult<String> {
-        if (name.isBlank()) return fail("El nombre es obligatorio")
+    ): ActionResult<String> = guarded("No se pudo crear la cuenta") {
+        if (name.isBlank()) return@guarded fail("El nombre es obligatorio")
         val currency = catalogDao.currencyById(currencyId)
-        if (currency == null || !currency.active) return fail("Moneda no válida")
+        if (currency == null || !currency.active) return@guarded fail("Moneda no válida")
+        // Una moneda digital no existe en efectivo: sin cuentas de caja/efectivo.
+        val cashLike = AccountType.entries.firstOrNull { it.name == type }?.isCashLike() == true
+        if (cashLike && isDigitalCurrencyKind(currency.kind)) {
+            return@guarded fail("${currency.code} es digital: usa una cuenta de tipo Banco o Digital")
+        }
 
         if (groupId != null && catalogDao.groupById(groupId) == null) {
-            return fail("Grupo no válido")
+            return@guarded fail("Grupo no válido")
         }
-        if (icon != null && icon !in ACCOUNT_ICON_NAMES) return fail("Icono no válido")
+        if (icon != null && icon !in ACCOUNT_ICON_NAMES) return@guarded fail("Icono no válido")
 
         val initialMinor = try {
             initialAmount?.takeIf { it.isNotBlank() }
                 ?.let { parseAmountToMinor(it, currency.toMinor()) } ?: 0L
         } catch (e: MoneyException) {
-            return fail(e.message ?: "Monto inválido")
+            return@guarded fail(e.message ?: "Monto inválido")
         }
 
         // Cuenta y saldo inicial en una sola transacción: sin cuentas a medias.
@@ -236,27 +270,27 @@ class AccountRepository(private val db: ChangeboxDatabase) {
                 )
             }
         }
-        return ok(account.id)
+        return@guarded ok(account.id)
     }
 
-    suspend fun setAccountIcon(accountId: String, icon: String?): ActionResult<String> {
-        if (icon != null && icon !in ACCOUNT_ICON_NAMES) return fail("Icono no válido")
-        val account = accountDao.accountById(accountId) ?: return fail("Cuenta no encontrada")
+    suspend fun setAccountIcon(accountId: String, icon: String?): ActionResult<String> = guarded("No se pudo actualizar el icono") {
+        if (icon != null && icon !in ACCOUNT_ICON_NAMES) return@guarded fail("Icono no válido")
+        val account = accountDao.accountById(accountId) ?: return@guarded fail("Cuenta no encontrada")
         accountDao.setIcon(account.id, icon)
-        return ok(account.id)
+        return@guarded ok(account.id)
     }
 
     suspend fun updateAccount(
         accountId: String,
         name: String,
         archived: Boolean? = null,
-    ): ActionResult<String> {
-        if (name.isBlank()) return fail("El nombre es obligatorio")
-        val account = accountDao.accountById(accountId) ?: return fail("Cuenta no encontrada")
+    ): ActionResult<String> = guarded("No se pudo actualizar la cuenta") {
+        if (name.isBlank()) return@guarded fail("El nombre es obligatorio")
+        val account = accountDao.accountById(accountId) ?: return@guarded fail("Cuenta no encontrada")
         accountDao.updateAccount(
             account.copy(name = name.trim(), archived = archived ?: account.archived)
         )
-        return ok(account.id)
+        return@guarded ok(account.id)
     }
 
     /**
@@ -266,10 +300,10 @@ class AccountRepository(private val db: ChangeboxDatabase) {
      * deuda reaparece al ser derivado). Las cuotas saldadas conservan su
      * estado (SET_NULL). Archivar sigue siendo la opción que conserva todo.
      */
-    suspend fun deleteAccount(accountId: String): ActionResult<Unit> {
-        accountDao.accountById(accountId) ?: return fail("Cuenta no encontrada")
+    suspend fun deleteAccount(accountId: String): ActionResult<Unit> = guarded("No se pudo eliminar la cuenta") {
+        accountDao.accountById(accountId) ?: return@guarded fail("Cuenta no encontrada")
         accountDao.deleteAccount(accountId)
-        return ok(Unit)
+        return@guarded ok(Unit)
     }
 }
 

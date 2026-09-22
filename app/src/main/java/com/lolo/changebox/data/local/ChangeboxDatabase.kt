@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import com.lolo.changebox.data.local.dao.AccountDao
 import com.lolo.changebox.data.local.dao.CashCountDao
 import com.lolo.changebox.data.local.dao.CatalogDao
@@ -48,7 +51,7 @@ import com.lolo.changebox.data.local.entity.TransactionEntity
         InstallmentEntity::class,
         DebtPaymentEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class ChangeboxDatabase : RoomDatabase() {
@@ -61,10 +64,27 @@ abstract class ChangeboxDatabase : RoomDatabase() {
     abstract fun rateDao(): RateDao
 
     companion object {
+        /**
+         * v1 → v2: clasificación de la moneda (`Currency.kind` = CASH |
+         * DIGITAL, port de la web). Aditiva y con defecto, así que las
+         * monedas ya creadas quedan como efectivo — que es lo que eran.
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "ALTER TABLE currencies ADD COLUMN kind TEXT NOT NULL DEFAULT 'CASH'"
+                )
+            }
+        }
+
         fun build(context: Context): ChangeboxDatabase =
+            // El fichero conserva el nombre histórico: renombrarlo dejaría
+            // huérfanos los datos de quien ya tiene la app instalada.
             Room.databaseBuilder(context, ChangeboxDatabase::class.java, "caja.db")
-                // Remake desde cero: si quedara una BD del prototipo con sync,
-                // se descarta (aquel esquema dependía del servidor).
+                .addMigrations(MIGRATION_1_2)
+                // Red de seguridad para saltos de versión sin migración
+                // escrita (BD de prototipos): preferimos arrancar limpios a
+                // reventar. Los saltos previstos SÍ llevan migración.
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
     }

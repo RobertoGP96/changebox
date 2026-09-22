@@ -20,6 +20,23 @@ val CASH_LIKE_TYPES: Set<AccountType> = setOf(AccountType.CASH, AccountType.CASH
 
 fun AccountType.isCashLike(): Boolean = this in CASH_LIKE_TYPES
 
+/**
+ * Clasificación de la moneda: las digitales (ej. MLC) no existen en
+ * efectivo, así que no pueden tener denominaciones ni cuentas tipo caja.
+ */
+enum class CurrencyKind(val labelEs: String) {
+    CASH("Efectivo"),
+    DIGITAL("Digital (sin efectivo)");
+
+    companion object {
+        /** Tolerante: una fila con valor desconocido se trata como efectivo. */
+        fun from(value: String): CurrencyKind =
+            entries.firstOrNull { it.name == value } ?: CASH
+    }
+}
+
+fun isDigitalCurrencyKind(kind: String): Boolean = kind == CurrencyKind.DIGITAL.name
+
 enum class TransactionKind(val labelEs: String) {
     INCOME("Ingreso"),
     EXPENSE("Gasto"),
@@ -62,7 +79,7 @@ enum class Frequency(val labelEs: String) {
 
 enum class InstallmentStatus(val labelEs: String) {
     PENDING("Pendiente"),
-    PAID("Pagada"),
+    PAID("Saldada"),
     SKIPPED("Omitida");
 }
 
